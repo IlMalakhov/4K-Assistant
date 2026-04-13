@@ -29,13 +29,33 @@ NO_CHANGES_PHRASES = {
     "ничего не изменилось",
     "ничего не поменялось",
     "без изменений",
+    "все без изменений",
+    "все по прежнему",
+    "все по-старому",
+    "все осталось как есть",
+    "оставить как есть",
+    "оставить без изменений",
+    "ничего обновлять не нужно",
+    "обновлять не нужно",
+    "обновлять не надо",
     "не требуется",
     "не нужно",
     "не надо",
+    "не нужно обновлять",
+    "не надо обновлять",
+    "не нужно менять",
+    "не надо менять",
     "заполнять не нужно",
     "профиль заполнять не нужно",
     "профиль не нужно заполнять",
     "профиль актуален",
+    "все актуально",
+    "все актуально у меня",
+    "должность актуальна",
+    "обязанности актуальны",
+    "должность и обязанности актуальны",
+    "ничего менять не нужно",
+    "ничего менять не надо",
 }
 
 ROLE_HINTS = {
@@ -144,7 +164,24 @@ def _trimmed(value: str) -> str:
 
 def _means_no_changes(text: str) -> bool:
     normalized = " ".join(text.lower().replace("ё", "е").split())
-    return any(phrase in normalized for phrase in NO_CHANGES_PHRASES)
+    if any(phrase in normalized for phrase in NO_CHANGES_PHRASES):
+        return True
+
+    if normalized in {"нет", "неа", "нету", "ага нет", "нет спасибо"}:
+        return True
+
+    if re.match(r"^(нет|неа|нету)(\b|[,.!?:])", normalized):
+        if any(marker in normalized for marker in {"измен", "обнов", "менять", "коррект"}):
+            return True
+        if any(marker in normalized for marker in {"все актуаль", "без измен", "по прежнему", "как есть"}):
+            return True
+        if len(normalized.split()) <= 3:
+            return True
+
+    if normalized.startswith(("все актуально", "профиль актуален", "без изменений", "оставить как есть")):
+        return True
+
+    return False
 
 
 class InterviewerAgent:

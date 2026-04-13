@@ -84,7 +84,15 @@ class AssessmentService:
             ).fetchone()
 
             if existing is not None:
-                return self._build_plan(connection, existing["id"], existing["session_code"])
+                repaired_existing = self._repair_existing_session(
+                    connection=connection,
+                    user=user,
+                    session_id=existing["id"],
+                    session_code=existing["session_code"],
+                )
+                if repaired_existing is not None:
+                    repaired_session_id, repaired_session_code = repaired_existing
+                    return self._build_plan(connection, repaired_session_id, repaired_session_code)
 
             passed_case_rows = connection.execute(
                 """
@@ -112,38 +120,12 @@ class AssessmentService:
             if not required_skill_ids:
                 return None
 
-            candidate_rows = connection.execute(
-                """
-                SELECT
-                    ct.id,
-                    ct.case_code,
-                    ct.text_code,
-                    ct.type_code,
-                    ct.title,
-                    ct.intro_context,
-                    ct.task_for_user,
-                    ct.domain_context,
-                    ct.personalization_variables,
-                    ct.estimated_minutes,
-                    ct.planned_duration_minutes,
-                    array_agg(cts.skill_id ORDER BY cts.position) AS skill_ids,
-                    array_agg(s.skill_name ORDER BY cts.position) AS skill_names
-                FROM case_templates ct
-                JOIN case_template_roles ctr ON ctr.case_template_id = ct.id
-                JOIN case_template_skills cts ON cts.case_template_id = ct.id
-                JOIN skills s ON s.id = cts.skill_id
-                WHERE ctr.role_id = %s
-                  AND ct.status = 'актуальный'
-                  AND cts.skill_id = ANY(%s)
-                  AND (
-                      COALESCE(array_length(%s::int[], 1), 0) = 0
-                      OR ct.id::int != ALL(%s::int[])
-                  )
-                GROUP BY ct.id, ct.case_code, ct.text_code, ct.type_code, ct.title, ct.intro_context, ct.task_for_user, ct.domain_context, ct.personalization_variables, ct.estimated_minutes, ct.planned_duration_minutes
-                ORDER BY COUNT(cts.skill_id) DESC, ct.estimated_minutes ASC NULLS LAST, ct.id ASC
-                """,
-                (user.role_id, required_skill_ids, passed_case_ids, passed_case_ids),
-            ).fetchall()
+            candidate_rows = self._load_candidate_case_rows(
+                connection=connection,
+                role_id=user.role_id,
+                required_skill_ids=required_skill_ids,
+                excluded_case_ids=passed_case_ids,
+            )
 
             candidate_case_pool_with_history_flags = self._enrich_candidate_case_pool_with_history(
                 connection=connection,
@@ -152,6 +134,19 @@ class AssessmentService:
             )
 
             selected_cases = self._select_minimum_cases(candidate_case_pool_with_history_flags, required_skill_ids)
+            if not selected_cases:
+                retry_candidate_rows = self._load_candidate_case_rows(
+                    connection=connection,
+                    role_id=user.role_id,
+                    required_skill_ids=required_skill_ids,
+                    excluded_case_ids=[],
+                )
+                retry_candidate_pool = self._enrich_candidate_case_pool_with_history(
+                    connection=connection,
+                    user_id=user.id,
+                    candidate_rows=retry_candidate_rows,
+                )
+                selected_cases = self._select_minimum_cases(retry_candidate_pool, required_skill_ids)
             if not selected_cases:
                 return None
 
@@ -230,19 +225,6 @@ class AssessmentService:
                     """,
                     (session_case_id,),
                 )
-                personalization_map, personalized_context, personalized_task = deepseek_client.build_personalized_case_materials(
-                    full_name=user.full_name,
-                    position=user.raw_position or user.job_description,
-                    duties=user.normalized_duties or user.raw_duties,
-                    role_name=role_name,
-                    user_profile=user_profile,
-                    case_title=case_row["title"],
-                    case_context=case_row["intro_context"] or case_row["domain_context"] or "",
-                    case_task=case_row["task_for_user"] or "",
-                    planned_total_duration_min=case_row["planned_duration_minutes"] or case_row["estimated_minutes"],
-                    personalization_variables=case_row["personalization_variables"],
-                )
-
                 connection.execute(
                     """
                     INSERT INTO user_case_assignments (
@@ -279,35 +261,15 @@ class AssessmentService:
                         (user.id, user.role_id, skill_id, case_row["id"]),
                     )
 
-                prompt_text = deepseek_client.generate_case_prompt(
-                    full_name=user.full_name,
-                    position=user.raw_position or user.job_description,
-                    duties=user.normalized_duties or user.raw_duties,
+                self._upsert_session_case_prompt(
+                    connection=connection,
+                    user=user,
+                    session_id=session_id,
+                    session_case_id=session_case_id,
+                    case_row=case_row,
                     role_name=role_name,
                     user_profile=user_profile,
-                    case_title=case_row["title"],
-                    case_context=personalized_context,
-                    case_task=personalized_task,
-                    case_skills=[name for name in case_row["skill_names"] if name],
-                    planned_total_duration_min=case_row["planned_duration_minutes"] or case_row["estimated_minutes"],
-                    personalization_variables=case_row["personalization_variables"],
-                    personalization_map=personalization_map,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO session_prompts (
-                        session_id, session_case_id, prompt_type, model_name, system_prompt, user_prompt, final_prompt_text
-                    )
-                    VALUES (%s, %s, 'case_dialog', %s, %s, %s, %s)
-                    """,
-                    (
-                        session_id,
-                        session_case_id,
-                        deepseek_client.model,
-                        prompt_text,
-                        f"Personalized case context: {personalized_context}\nPersonalized task: {personalized_task}\nplanned_total_duration_min: {case_row['planned_duration_minutes'] or case_row['estimated_minutes']}",
-                        prompt_text,
-                    ),
+                    skill_names=[name for name in case_row["skill_names"] if name],
                 )
                 connection.execute(
                     """
@@ -340,6 +302,257 @@ class AssessmentService:
             )
             connection.commit()
             return self._build_plan(connection, session_id, session_code)
+
+    def _load_candidate_case_rows(self, *, connection, role_id: int, required_skill_ids: list[int], excluded_case_ids: list[int]):
+        return connection.execute(
+            """
+            SELECT
+                ct.id,
+                ct.case_code,
+                ct.text_code,
+                ct.type_code,
+                ct.title,
+                ct.intro_context,
+                ct.task_for_user,
+                ct.domain_context,
+                ct.personalization_variables,
+                ct.estimated_minutes,
+                ct.planned_duration_minutes,
+                array_agg(cts.skill_id ORDER BY cts.position) AS skill_ids,
+                array_agg(s.skill_name ORDER BY cts.position) AS skill_names
+            FROM case_templates ct
+            JOIN case_template_roles ctr ON ctr.case_template_id = ct.id
+            JOIN case_template_skills cts ON cts.case_template_id = ct.id
+            JOIN skills s ON s.id = cts.skill_id
+            WHERE ctr.role_id = %s
+              AND ct.status = 'актуальный'
+              AND cts.skill_id = ANY(%s)
+              AND (
+                  COALESCE(array_length(%s::int[], 1), 0) = 0
+                  OR ct.id::int != ALL(%s::int[])
+              )
+            GROUP BY ct.id, ct.case_code, ct.text_code, ct.type_code, ct.title, ct.intro_context, ct.task_for_user, ct.domain_context, ct.personalization_variables, ct.estimated_minutes, ct.planned_duration_minutes
+            ORDER BY COUNT(cts.skill_id) DESC, ct.estimated_minutes ASC NULLS LAST, ct.id ASC
+            """,
+            (role_id, required_skill_ids, excluded_case_ids, excluded_case_ids),
+        ).fetchall()
+
+    def _repair_existing_session(
+        self,
+        *,
+        connection,
+        user: UserResponse,
+        session_id: int,
+        session_code: str,
+    ) -> tuple[int, str] | None:
+        case_rows = connection.execute(
+            """
+            SELECT
+                sc.id,
+                sc.status,
+                sc.case_template_id,
+                ct.title,
+                ct.case_code,
+                ct.text_code,
+                ct.type_code,
+                ct.intro_context,
+                ct.task_for_user,
+                ct.domain_context,
+                ct.personalization_variables,
+                ct.estimated_minutes,
+                ct.planned_duration_minutes,
+                EXISTS(
+                    SELECT 1
+                    FROM session_prompts sp
+                    WHERE sp.session_case_id = sc.id
+                      AND sp.prompt_type = 'case_dialog'
+                ) AS has_prompt
+            FROM session_cases sc
+            JOIN case_templates ct ON ct.id = sc.case_template_id
+            WHERE sc.session_id = %s
+            ORDER BY sc.id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+
+        if not case_rows:
+            self._archive_broken_session(
+                connection=connection,
+                session_id=session_id,
+                reason="repair: session has no cases",
+            )
+            connection.commit()
+            return None
+
+        open_case_rows = [row for row in case_rows if row["status"] not in {"answered", "assessed"}]
+        if not open_case_rows:
+            connection.execute(
+                """
+                UPDATE user_sessions
+                SET status = 'completed',
+                    finished_at = COALESCE(finished_at, NOW()),
+                    notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\\n' END, %s::text)
+                WHERE id = %s
+                """,
+                ("repair: session auto-completed because no open cases remain", session_id),
+            )
+            connection.commit()
+            return None
+
+        role_row = connection.execute(
+            "SELECT name FROM roles WHERE id = %s",
+            (user.role_id,),
+        ).fetchone()
+        role_name = role_row["name"] if role_row else None
+        profile_row = connection.execute(
+            """
+            SELECT user_domain, user_processes, user_tasks, user_stakeholders,
+                   user_risks, user_constraints, user_context_vars, role_limits,
+                   role_vocabulary, role_skill_profile
+            FROM user_role_profiles
+            WHERE id = %s
+            """,
+            (user.active_profile_id,),
+        ).fetchone() if user.active_profile_id else None
+        user_profile = dict(profile_row) if profile_row else None
+
+        for row in open_case_rows:
+            if row["has_prompt"]:
+                continue
+            skill_rows = connection.execute(
+                """
+                SELECT s.skill_name
+                FROM session_case_skills scs
+                JOIN skills s ON s.id = scs.skill_id
+                WHERE scs.session_case_id = %s
+                ORDER BY s.id ASC
+                """,
+                (row["id"],),
+            ).fetchall()
+            self._upsert_session_case_prompt(
+                connection=connection,
+                user=user,
+                session_id=session_id,
+                session_case_id=row["id"],
+                case_row=row,
+                role_name=role_name,
+                user_profile=user_profile,
+                skill_names=[skill_row["skill_name"] for skill_row in skill_rows if skill_row["skill_name"]],
+            )
+
+        repaired_plan = self._build_plan(connection, session_id, session_code)
+        if repaired_plan.current_session_case_id is None:
+            connection.execute(
+                """
+                UPDATE user_sessions
+                SET status = 'completed',
+                    finished_at = COALESCE(finished_at, NOW()),
+                    notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\\n' END, %s::text)
+                WHERE id = %s
+                """,
+                ("repair: session finalized after integrity check", session_id),
+            )
+            connection.commit()
+            return None
+
+        current_prompt_row = connection.execute(
+            """
+            SELECT 1
+            FROM session_prompts
+            WHERE session_case_id = %s
+              AND prompt_type = 'case_dialog'
+            LIMIT 1
+            """,
+            (repaired_plan.current_session_case_id,),
+        ).fetchone()
+        if current_prompt_row is None:
+            self._archive_broken_session(
+                connection=connection,
+                session_id=session_id,
+                reason="repair: current case prompt missing after rebuild",
+            )
+            connection.commit()
+            return None
+
+        connection.commit()
+        return (session_id, session_code)
+
+    def _archive_broken_session(self, *, connection, session_id: int, reason: str) -> None:
+        connection.execute(
+            """
+            UPDATE user_sessions
+            SET status = 'failed',
+                finished_at = COALESCE(finished_at, NOW()),
+                notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\\n' END, %s::text)
+            WHERE id = %s
+            """,
+            (reason, session_id),
+        )
+
+    def _upsert_session_case_prompt(
+        self,
+        *,
+        connection,
+        user: UserResponse,
+        session_id: int,
+        session_case_id: int,
+        case_row,
+        role_name: str | None,
+        user_profile: dict | None,
+        skill_names: list[str],
+    ) -> None:
+        planned_total_duration_min = case_row["planned_duration_minutes"] or case_row["estimated_minutes"]
+        personalization_map, personalized_context, personalized_task = deepseek_client.build_personalized_case_materials(
+            full_name=user.full_name,
+            position=user.raw_position or user.job_description,
+            duties=user.normalized_duties or user.raw_duties,
+            role_name=role_name,
+            user_profile=user_profile,
+            case_title=case_row["title"],
+            case_context=case_row["intro_context"] or case_row["domain_context"] or "",
+            case_task=case_row["task_for_user"] or "",
+            planned_total_duration_min=planned_total_duration_min,
+            personalization_variables=case_row["personalization_variables"],
+        )
+
+        prompt_text = deepseek_client.generate_case_prompt(
+            full_name=user.full_name,
+            position=user.raw_position or user.job_description,
+            duties=user.normalized_duties or user.raw_duties,
+            role_name=role_name,
+            user_profile=user_profile,
+            case_title=case_row["title"],
+            case_context=personalized_context,
+            case_task=personalized_task,
+            case_skills=skill_names,
+            planned_total_duration_min=planned_total_duration_min,
+            personalization_variables=case_row["personalization_variables"],
+            personalization_map=personalization_map,
+        )
+        connection.execute(
+            """
+            DELETE FROM session_prompts
+            WHERE session_case_id = %s
+              AND prompt_type = 'case_dialog'
+            """,
+            (session_case_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO session_prompts (
+                session_id, session_case_id, prompt_type, model_name, system_prompt, user_prompt, final_prompt_text
+            )
+            VALUES (%s, %s, 'case_dialog', %s, %s, %s, %s)
+            """,
+            (
+                session_id,
+                session_case_id,
+                deepseek_client.model,
+                prompt_text,
+                f"Personalized case context: {personalized_context}\nPersonalized task: {personalized_task}\nplanned_total_duration_min: {planned_total_duration_min}",
+                prompt_text,
+            ),
+        )
 
     def open_assessment_dialogue(self, session_code: str) -> AssessmentTurnReply:
         with get_connection() as connection:

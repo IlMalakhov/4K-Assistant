@@ -183,3 +183,35 @@ class SkillAssessmentResponse(BaseModel):
     source_session_case_ids: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class UserAssessmentHistoryItem(BaseModel):
+    session_id: int
+    session_code: str
+    status: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    completed_cases: int
+    total_cases: int
+    progress_percent: int
+    overall_score_percent: int | None = None
+
+
+class UserProfileSummaryResponse(BaseModel):
+    user: UserResponse
+    total_assessments: int
+    completed_assessments: int
+    average_score_percent: int | None = None
+    latest_session_id: int | None = None
+    history: list[UserAssessmentHistoryItem]
+
+
+class UserSessionRestoreResponse(BaseModel):
+    authenticated: bool
+    user: UserResponse | None = None
+    dashboard: UserDashboard | None = None
+
+
+class UserSessionBootstrapResponse(BaseModel):
+    user: UserResponse
+    dashboard: UserDashboard

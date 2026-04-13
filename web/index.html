@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>4K Ассистент</title>
-  <link rel="stylesheet" href="/web/app.css?v=20260413-1742">
+  <link rel="stylesheet" href="/web/app.css?v=20260414-0058">
 </head>
 <body>
   <div id="app-loader" class="app-loader hidden" aria-live="polite">
@@ -50,7 +50,7 @@
         <div class="brand dashboard-brand">4K Ассистент</div>
         <div class="dashboard-topbar-actions">
           <span class="topbar-icon">◦</span>
-          <button id="profile-settings-button" class="icon-button profile-settings-button" type="button" aria-label="Настройки профиля">⚙</button>
+          <button id="dashboard-profile-button" class="topbar-profile-button" type="button">Профиль</button>
           <div class="user-chip">
             <div class="user-chip-copy">
               <strong id="dashboard-user-name">Александр</strong>
@@ -58,7 +58,10 @@
             </div>
             <div id="dashboard-avatar" class="user-avatar">А</div>
           </div>
-          <button id="dashboard-restart-button" class="ghost-button compact-ghost" type="button">Новый поиск</button>
+          <button id="dashboard-restart-button" class="topbar-exit-button" type="button">
+            <span class="topbar-user-icon" aria-hidden="true">👤</span>
+            <span>Выйти</span>
+          </button>
         </div>
       </div>
 
@@ -87,7 +90,6 @@
           <div class="assessment-actions">
             <strong id="assessment-progress-value">0%</strong>
             <button id="assessment-action-button" type="button" class="primary-button">Продолжить</button>
-            <button type="button" class="link-button">Пройти позже</button>
           </div>
         </div>
       </section>
@@ -118,8 +120,11 @@
         <div class="dashboard-topbar-actions">
           <span class="topbar-icon">◦</span>
           <button class="icon-button" type="button" aria-label="Уведомления">⌁</button>
-          <button class="icon-button" type="button" aria-label="Настройки">⚙</button>
-          <button id="new-user-exit-button" class="ghost-button compact-ghost" type="button">Выйти</button>
+          <button id="welcome-profile-button" class="topbar-profile-button" type="button">Профиль</button>
+          <button id="new-user-exit-button" class="topbar-exit-button" type="button">
+            <span class="topbar-user-icon" aria-hidden="true">👤</span>
+            <span>Выйти</span>
+          </button>
         </div>
       </div>
 
@@ -199,6 +204,7 @@
           </article>
         </div>
         <button id="prechat-start-button" type="button" class="primary-button prechat-start">Начать</button>
+        <p id="prechat-error" class="error" hidden></p>
         <p class="prechat-duration">Ориентировочное время: 45 минут</p>
         <div class="prechat-social-proof">Более 12,000 профессионалов уже прошли этот ассессмент</div>
       </div>
@@ -257,6 +263,79 @@
           <p id="interview-error" class="error" hidden></p>
           <p class="interview-footnote">Ответы анализируются алгоритмами AI для оценки компетенций</p>
         </div>
+      </div>
+    </section>
+
+    <section class="panel profile-panel hidden" id="profile-panel">
+      <div class="dashboard-topbar">
+        <div class="brand dashboard-brand">Профиль пользователя</div>
+        <div class="dashboard-topbar-actions">
+          <button id="profile-back-button" class="ghost-button compact-ghost" type="button">Назад</button>
+        </div>
+      </div>
+
+      <div class="profile-shell">
+        <section class="profile-hero-card">
+          <div class="profile-identity-card">
+            <div id="profile-avatar" class="profile-avatar">A</div>
+            <strong id="profile-name">Пользователь</strong>
+            <span id="profile-role">Должность не указана</span>
+            <div class="profile-stats">
+              <article class="profile-stat">
+                <span>Ассессменты</span>
+                <strong id="profile-total-assessments">0</strong>
+              </article>
+              <article class="profile-stat">
+                <span>Средний результат</span>
+                <strong id="profile-average-score">0%</strong>
+              </article>
+            </div>
+          </div>
+
+          <div class="profile-info-card">
+            <div class="profile-card-head">
+              <h3>Основная информация</h3>
+              <p>Управляйте данными профиля и просматривайте результаты всех попыток ассессмента.</p>
+            </div>
+            <div class="profile-info-grid">
+              <label class="profile-field">
+                <span>Имя</span>
+                <input id="profile-full-name" type="text" readonly>
+              </label>
+              <label class="profile-field">
+                <span>Email</span>
+                <input id="profile-email" type="text" readonly>
+              </label>
+              <label class="profile-field">
+                <span>Телефон</span>
+                <input id="profile-phone" type="text" readonly>
+              </label>
+              <label class="profile-field">
+                <span>Профессия</span>
+                <input id="profile-job-description" type="text" readonly>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="profile-history-card">
+          <div class="profile-card-head">
+            <h3>История прохождений</h3>
+            <p>Выберите попытку, чтобы посмотреть результаты по всем 13 навыкам.</p>
+          </div>
+          <div id="profile-history-list" class="profile-history-list"></div>
+        </section>
+
+        <section class="profile-results-card">
+          <div class="profile-card-head profile-results-head">
+            <div>
+              <h3>Результаты оценки по 13 навыкам</h3>
+              <p id="profile-results-caption">Выберите прохождение из списка выше.</p>
+            </div>
+            <div id="profile-results-badge" class="profile-results-badge">Нет данных</div>
+          </div>
+          <div id="profile-skills-list" class="profile-skills-list"></div>
+        </section>
       </div>
     </section>
 
@@ -370,6 +449,12 @@
             <div id="report-tabs" class="report-tabs"></div>
           </div>
 
+          <div class="report-detail-columns" aria-hidden="true">
+            <span class="report-detail-column-name">Навык</span>
+            <span class="report-detail-column-level">Уровень</span>
+            <span class="report-detail-column-progress">Прогресс</span>
+          </div>
+
           <div id="report-detail-list" class="report-detail-list"></div>
         </section>
       </div>
@@ -381,7 +466,10 @@
           <div class="brand">4K Ассистент</div>
           <h2>Агент профиля сотрудника</h2>
         </div>
-        <button id="restart-button" class="ghost-button" type="button">Новый поиск</button>
+        <button id="restart-button" class="topbar-exit-button" type="button">
+          <span class="topbar-user-icon" aria-hidden="true">👤</span>
+          <span>Выйти</span>
+        </button>
       </div>
 
       <div id="status-card" class="status-card hidden"></div>
@@ -395,6 +483,6 @@
     </section>
   </main>
 
-  <script src="/web/app.js?v=20260413-1742" defer></script>
+  <script src="/web/app.js?v=20260414-0058" defer></script>
 </body>
 </html>
