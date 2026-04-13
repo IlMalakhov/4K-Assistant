@@ -135,7 +135,10 @@ class AssessmentService:
                 WHERE ctr.role_id = %s
                   AND ct.status = 'актуальный'
                   AND cts.skill_id = ANY(%s)
-                  AND (%s = '{}'::int[] OR ct.id != ALL(%s))
+                  AND (
+                      COALESCE(array_length(%s::int[], 1), 0) = 0
+                      OR ct.id::int != ALL(%s::int[])
+                  )
                 GROUP BY ct.id, ct.case_code, ct.text_code, ct.type_code, ct.title, ct.intro_context, ct.task_for_user, ct.domain_context, ct.personalization_variables, ct.estimated_minutes, ct.planned_duration_minutes
                 ORDER BY COUNT(cts.skill_id) DESC, ct.estimated_minutes ASC NULLS LAST, ct.id ASC
                 """,

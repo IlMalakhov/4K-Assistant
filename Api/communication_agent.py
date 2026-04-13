@@ -114,7 +114,7 @@ class BaseCompetencyAgent:
                 skill_name=skill["skill_name"],
                 competency_name=skill["competency_name"],
                 level_code=level_code,
-                level_name=LEVEL_NAMES.get(level_code, level_code),
+                level_name=self._resolve_level_name(level_code, rubric),
                 rubric_match_scores=rubric_match_scores,
                 structural_elements=structural_elements,
                 red_flags=red_flags,
@@ -148,6 +148,10 @@ class BaseCompetencyAgent:
             evidence_excerpt="",
             source_session_case_ids=[],
         )
+
+    def _resolve_level_name(self, level_code: str, rubric: dict[str, dict[str, str]]) -> str:
+        rubric_row = rubric.get(level_code, {})
+        return rubric_row.get("level_name") or LEVEL_NAMES.get(level_code, level_code)
 
     def _load_session_skills(self, connection, session_id: int) -> list[dict[str, Any]]:
         rows = connection.execute(

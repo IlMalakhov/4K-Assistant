@@ -19,7 +19,60 @@ const state = {
   assessmentTimeoutInFlight: false,
   activeInterviewCaseKey: null,
   caseOutcomeByNumber: {},
+  processingTimerId: null,
+  processingStepIndex: 0,
+  processingAgents: [],
+  assessmentSessionId: null,
+  skillAssessments: [],
+  reportCompetencyTab: 'Коммуникация',
+  processingAnimationDone: false,
+  processingDataLoaded: false,
+  processingAutoTransitionStarted: false,
 };
+
+const processingAgentsBlueprint = [
+  {
+    id: 'communication',
+    title: 'Агент коммуникации',
+    focus: 'Проверяет ясность, эмпатию, вопросы и согласование позиции.',
+  },
+  {
+    id: 'teamwork',
+    title: 'Агент командной работы',
+    focus: 'Анализирует распределение ролей, координацию и работу с командой.',
+  },
+  {
+    id: 'creativity',
+    title: 'Агент креативности',
+    focus: 'Ищет альтернативы, оригинальные идеи и гибкость мышления.',
+  },
+  {
+    id: 'critical',
+    title: 'Агент критического мышления',
+    focus: 'Оценивает критерии, риски, гипотезы и принятие решений.',
+  },
+];
+
+const processingPhases = [
+  'Извлекаем релевантные фрагменты ответов пользователя по кейсам.',
+  'Сопоставляем ответы с рубриками уровней и структурными признаками.',
+  'Проверяем красные флаги и итоговые уровни по каждому навыку.',
+  'Формируем итоговый профиль и подготавливаем результаты для интерфейса.',
+];
+
+const levelPercentMap = {
+  'L1': 45,
+  'L2': 70,
+  'L3': 92,
+  'N/A': 12,
+};
+
+const competencyOrder = [
+  'Коммуникация',
+  'Командная работа',
+  'Креативность',
+  'Критическое мышление',
+];
 
 const onboardingSteps = [
   {
@@ -61,6 +114,8 @@ const dashboardPanel = document.getElementById('dashboard-panel');
 const aiWelcomePanel = document.getElementById('ai-welcome-panel');
 const prechatPanel = document.getElementById('prechat-panel');
 const interviewPanel = document.getElementById('interview-panel');
+const processingPanel = document.getElementById('processing-panel');
+const reportPanel = document.getElementById('report-panel');
 const chatPanel = document.getElementById('chat-panel');
 const phoneForm = document.getElementById('phone-form');
 const phoneInput = document.getElementById('phone-input');
@@ -114,6 +169,26 @@ const interviewRouteLabel = document.getElementById('interview-route-label');
 const appLoader = document.getElementById('app-loader');
 const appLoaderTitle = document.getElementById('app-loader-title');
 const appLoaderText = document.getElementById('app-loader-text');
+const processingBackButton = document.getElementById('processing-back-button');
+const processingTotalProgress = document.getElementById('processing-total-progress');
+const processingTotalProgressBar = document.getElementById('processing-total-progress-bar');
+const processingStatusText = document.getElementById('processing-status-text');
+const processingAgentsList = document.getElementById('processing-agents-list');
+const processingPhaseLabel = document.getElementById('processing-phase-label');
+const reportHomeButton = document.getElementById('report-home-button');
+const reportDownloadButton = document.getElementById('report-download-button');
+const reportOverallScore = document.getElementById('report-overall-score');
+const reportSummaryText = document.getElementById('report-summary-text');
+const reportProfileAvatar = document.getElementById('report-profile-avatar');
+const reportProfileName = document.getElementById('report-profile-name');
+const reportProfileRole = document.getElementById('report-profile-role');
+const reportRecommendations = document.getElementById('report-recommendations');
+const reportCompetencyBars = document.getElementById('report-competency-bars');
+const reportStrengthTitle = document.getElementById('report-strength-title');
+const reportStrengthText = document.getElementById('report-strength-text');
+const reportDetailTitle = document.getElementById('report-detail-title');
+const reportTabs = document.getElementById('report-tabs');
+const reportDetailList = document.getElementById('report-detail-list');
 
 const staticAssessments = [
   {
@@ -166,6 +241,35 @@ const hideLoader = () => {
   appLoader.classList.add('hidden');
 };
 
+const readApiResponse = async (response, fallbackMessage) => {
+  const rawText = await response.text();
+  let data = null;
+
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch (_error) {
+      data = null;
+    }
+  }
+
+  if (!response.ok) {
+    if (data && typeof data === 'object' && 'detail' in data && data.detail) {
+      throw new Error(data.detail);
+    }
+    if (rawText && rawText.trim()) {
+      throw new Error(rawText.trim().slice(0, 240));
+    }
+    throw new Error(fallbackMessage);
+  }
+
+  if (data === null) {
+    throw new Error(fallbackMessage);
+  }
+
+  return data;
+};
+
 const hideAllPanels = () => {
   authPanel.classList.add('hidden');
   onboardingPanel.classList.add('hidden');
@@ -173,8 +277,25 @@ const hideAllPanels = () => {
   aiWelcomePanel.classList.add('hidden');
   prechatPanel.classList.add('hidden');
   interviewPanel.classList.add('hidden');
+  processingPanel.classList.add('hidden');
+  reportPanel.classList.add('hidden');
   chatPanel.classList.add('hidden');
 };
+
+const clearProcessingTimer = () => {
+  if (state.processingTimerId) {
+    window.clearTimeout(state.processingTimerId);
+    state.processingTimerId = null;
+  }
+};
+
+const buildProcessingAgentsState = () =>
+  processingAgentsBlueprint.map((agent, index) => ({
+    ...agent,
+    order: index + 1,
+    progress: 0,
+    status: 'pending',
+  }));
 
 const resetChat = () => {
   state.sessionId = null;
@@ -195,10 +316,19 @@ const resetChat = () => {
   state.assessmentRemainingSeconds = null;
   state.activeInterviewCaseKey = null;
   state.caseOutcomeByNumber = {};
+  state.processingStepIndex = 0;
+  state.processingAgents = buildProcessingAgentsState();
+  state.assessmentSessionId = null;
+  state.skillAssessments = [];
+  state.reportCompetencyTab = 'Коммуникация';
+  state.processingAnimationDone = false;
+  state.processingDataLoaded = false;
+  state.processingAutoTransitionStarted = false;
   if (state.assessmentTimerId) {
     window.clearInterval(state.assessmentTimerId);
     state.assessmentTimerId = null;
   }
+  clearProcessingTimer();
   state.assessmentTimeoutInFlight = false;
   interviewMessages.innerHTML = '';
   interviewSummary.classList.add('hidden');
@@ -346,6 +476,345 @@ const openInterview = () => {
   interviewPanel.classList.remove('hidden');
 };
 
+const ensureDashboardAfterAssessment = () => {
+  if (!state.pendingUser) {
+    return;
+  }
+
+  if (!state.dashboard) {
+    state.dashboard = {
+      greeting_name: (state.pendingUser.full_name || 'Пользователь').split(' ')[0],
+      active_assessment: {
+        title: '4K Competency Assessment',
+        description: 'Комплексный анализ 4К-компетенций по кейсовому интервью.',
+        progress_percent: 100,
+        completed_cases: state.assessmentTotalCases || 0,
+        total_cases: state.assessmentTotalCases || 0,
+        button_label: 'Посмотреть результат',
+      },
+      available_assessments: [
+        {
+          title: '4K Competency Assessment',
+          description: 'Персонализированная оценка компетенций по завершенной сессии.',
+          duration_minutes: 45,
+          status: 'completed',
+        },
+      ],
+      reports: [],
+    };
+    return;
+  }
+
+  state.dashboard.active_assessment = {
+    ...state.dashboard.active_assessment,
+    progress_percent: 100,
+    completed_cases: state.assessmentTotalCases || state.dashboard.active_assessment.total_cases || 0,
+    total_cases: state.assessmentTotalCases || state.dashboard.active_assessment.total_cases || 0,
+    button_label: 'Посмотреть результат',
+  };
+};
+
+const getLevelPercent = (levelCode) => levelPercentMap[levelCode] ?? 0;
+
+const getCompetencySummary = () => {
+  const grouped = new Map();
+
+  competencyOrder.forEach((name) => {
+    grouped.set(name, []);
+  });
+
+  state.skillAssessments.forEach((item) => {
+    const competency = item.competency_name || 'Без категории';
+    if (!grouped.has(competency)) {
+      grouped.set(competency, []);
+    }
+    grouped.get(competency).push(item);
+  });
+
+  return Array.from(grouped.entries())
+    .filter(([, skills]) => skills.length > 0)
+    .map(([competency, skills]) => {
+      const avgPercent = Math.round(
+        skills.reduce((sum, skill) => sum + getLevelPercent(skill.assessed_level_code), 0) / skills.length,
+      );
+      return {
+        competency,
+        skills,
+        avgPercent,
+      };
+    });
+};
+
+const getReportRecommendations = (summary) => {
+  const weakest = [...summary].sort((a, b) => a.avgPercent - b.avgPercent).slice(0, 3);
+  if (!weakest.length) {
+    return ['Завершите ассессмент, чтобы получить рекомендации по развитию.'];
+  }
+
+  return weakest.map((item) => {
+    if (item.competency === 'Коммуникация') {
+      return 'Усилить коммуникацию: чаще фиксировать позицию, вопросы и договоренности в явном виде.';
+    }
+    if (item.competency === 'Командная работа') {
+      return 'Усилить командную работу: показывать распределение ролей, синхронизацию и поддержку участников.';
+    }
+    if (item.competency === 'Креативность') {
+      return 'Усилить креативность: предлагать альтернативы, пилоты и нестандартные варианты решений.';
+    }
+    return 'Усилить критическое мышление: добавлять критерии, риски, гипотезы и проверку решений.';
+  });
+};
+
+const renderReport = () => {
+  const summary = getCompetencySummary();
+  const totalScore = summary.length
+    ? Math.round(summary.reduce((sum, item) => sum + item.avgPercent, 0) / summary.length)
+    : 0;
+  const strongest = [...summary].sort((a, b) => b.avgPercent - a.avgPercent)[0] || null;
+
+  reportOverallScore.textContent = totalScore + '%';
+  reportSummaryText.textContent = 'Глубокий анализ оценок по четырем направлениям и детализация результатов по каждому навыку пользователя.';
+  reportProfileAvatar.textContent = buildInitials(state.pendingUser ? state.pendingUser.full_name : 'Пользователь');
+  reportProfileName.textContent = state.pendingUser?.full_name || 'Пользователь';
+  reportProfileRole.textContent = state.pendingUser?.job_description || 'Должность не указана';
+
+  reportRecommendations.innerHTML = '';
+  getReportRecommendations(summary).forEach((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    reportRecommendations.appendChild(item);
+  });
+
+  reportCompetencyBars.innerHTML = '';
+  summary.forEach((item) => {
+    const card = document.createElement('article');
+    card.className = 'report-competency-bar-card';
+    card.innerHTML =
+      '<strong>' + item.avgPercent + '%</strong>' +
+      '<span>' + item.competency + '</span>' +
+      '<div class="report-competency-meter"><div class="report-competency-meter-fill" style="height:' + item.avgPercent + '%"></div></div>';
+    reportCompetencyBars.appendChild(card);
+  });
+
+  if (strongest) {
+    reportStrengthTitle.textContent = 'Сильная сторона — ' + strongest.competency;
+    reportStrengthText.textContent =
+      'Наиболее выраженный показатель зафиксирован по направлению «' + strongest.competency +
+      '». Средний интегральный результат по связанным навыкам составил ' + strongest.avgPercent +
+      '%. Этот блок можно использовать как опору для дальнейшего развития и интерпретации профиля.';
+  } else {
+    reportStrengthTitle.textContent = 'Сильная сторона пока формируется';
+    reportStrengthText.textContent = 'Данные по навыкам еще не загружены. После завершения анализа здесь появится интерпретация сильной стороны пользователя.';
+  }
+
+  const availableTabs = summary.map((item) => item.competency);
+  if (!availableTabs.includes(state.reportCompetencyTab)) {
+    state.reportCompetencyTab = availableTabs[0] || 'Коммуникация';
+  }
+
+  reportTabs.innerHTML = '';
+  availableTabs.forEach((competency) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'report-tab-button' + (state.reportCompetencyTab === competency ? ' active' : '');
+    button.textContent = competency;
+    button.addEventListener('click', () => {
+      state.reportCompetencyTab = competency;
+      renderReport();
+    });
+    reportTabs.appendChild(button);
+  });
+
+  reportDetailTitle.textContent = state.reportCompetencyTab;
+  reportDetailList.innerHTML = '';
+  const selected = summary.find((item) => item.competency === state.reportCompetencyTab);
+  if (!selected) {
+    reportDetailList.innerHTML = '<p class="report-empty-state">Данные по выбранной компетенции пока недоступны.</p>';
+    return;
+  }
+
+  selected.skills.forEach((skill) => {
+    const percent = getLevelPercent(skill.assessed_level_code);
+    const item = document.createElement('article');
+    item.className = 'report-skill-row';
+    item.innerHTML =
+      '<div class="report-skill-name">' + skill.skill_name + '</div>' +
+      '<div class="report-skill-level">' + skill.assessed_level_name + '</div>' +
+      '<div class="report-skill-progress">' +
+      '<div class="report-skill-progress-track"><div class="report-skill-progress-fill" style="width:' + percent + '%"></div></div>' +
+      '<span>' + percent + '%</span>' +
+      '</div>';
+    reportDetailList.appendChild(item);
+  });
+};
+
+const openReport = () => {
+  hideAllPanels();
+  renderReport();
+  reportPanel.classList.remove('hidden');
+};
+
+const loadSkillAssessments = async () => {
+  if (!state.pendingUser?.id || !state.assessmentSessionId) {
+    return;
+  }
+
+  const response = await fetch('/users/' + state.pendingUser.id + '/assessment/' + state.assessmentSessionId + '/skill-assessments');
+  const data = await readApiResponse(response, 'Не удалось загрузить профиль компетенций.');
+  state.skillAssessments = data;
+};
+
+const tryOpenReportAfterProcessing = () => {
+  if (
+    state.processingAnimationDone &&
+    state.processingDataLoaded &&
+    !state.processingAutoTransitionStarted
+  ) {
+    state.processingAutoTransitionStarted = true;
+    window.setTimeout(() => {
+      openReport();
+    }, 280);
+  }
+};
+
+const renderProcessingOrbit = () => {
+  const nodeIds = {
+    communication: 'processing-node-communication',
+    teamwork: 'processing-node-teamwork',
+    creativity: 'processing-node-creativity',
+    critical: 'processing-node-critical',
+  };
+
+  state.processingAgents.forEach((agent) => {
+    const node = document.getElementById(nodeIds[agent.id]);
+    if (!node) {
+      return;
+    }
+    node.classList.remove('active', 'done');
+    if (agent.status === 'running') {
+      node.classList.add('active');
+    } else if (agent.status === 'done') {
+      node.classList.add('done');
+    }
+  });
+};
+
+const renderProcessingProgress = () => {
+  const totalProgress = Math.round(
+    state.processingAgents.reduce((sum, agent) => sum + agent.progress, 0) / state.processingAgents.length,
+  );
+  processingTotalProgress.textContent = totalProgress + '%';
+  processingTotalProgressBar.style.width = totalProgress + '%';
+
+  const activeAgent = state.processingAgents.find((agent) => agent.status === 'running');
+  const currentPhase = Math.min(state.processingStepIndex + 1, processingPhases.length);
+  processingPhaseLabel.textContent = 'Этап ' + currentPhase + ' из ' + processingPhases.length;
+
+  if (activeAgent) {
+    processingStatusText.textContent = activeAgent.title + ': ' + processingPhases[Math.min(state.processingStepIndex, processingPhases.length - 1)];
+  } else if (totalProgress >= 100) {
+    processingStatusText.textContent = 'Анализ завершен. Все четыре агента сформировали итоговую оценку по компетенциям.';
+  } else {
+    processingStatusText.textContent = 'Подготавливаем мульти-агентную оценку по результатам кейсов.';
+  }
+
+  processingAgentsList.innerHTML = '';
+  state.processingAgents.forEach((agent) => {
+    const item = document.createElement('article');
+    item.className = 'processing-agent-card ' + agent.status;
+    item.innerHTML =
+      '<div class="processing-agent-main">' +
+      '<div class="processing-agent-order">' + String(agent.order).padStart(2, '0') + '</div>' +
+      '<div class="processing-agent-copy">' +
+      '<strong>' + agent.title + '</strong>' +
+      '<p>' + agent.focus + '</p>' +
+      '</div>' +
+      '</div>' +
+      '<div class="processing-agent-meta">' +
+      '<span class="processing-agent-status">' +
+      (agent.status === 'done' ? 'Завершен' : agent.status === 'running' ? 'В работе' : 'Ожидание') +
+      '</span>' +
+      '<span class="processing-agent-percent">' + agent.progress + '%</span>' +
+      '</div>' +
+      '<div class="processing-agent-track"><div class="processing-agent-fill" style="width:' + agent.progress + '%"></div></div>';
+    processingAgentsList.appendChild(item);
+  });
+
+  renderProcessingOrbit();
+};
+
+const finishProcessingSequence = () => {
+  state.processingAgents = state.processingAgents.map((agent) => ({
+    ...agent,
+    progress: 100,
+    status: 'done',
+  }));
+  state.processingStepIndex = processingPhases.length - 1;
+  state.processingAnimationDone = true;
+  renderProcessingProgress();
+  tryOpenReportAfterProcessing();
+};
+
+const runProcessingStep = (stepIndex = 0) => {
+  clearProcessingTimer();
+
+  if (stepIndex >= state.processingAgents.length) {
+    finishProcessingSequence();
+    return;
+  }
+
+  state.processingStepIndex = Math.min(stepIndex, processingPhases.length - 1);
+  state.processingAgents = state.processingAgents.map((agent, index) => {
+    if (index < stepIndex) {
+      return { ...agent, progress: 100, status: 'done' };
+    }
+    if (index === stepIndex) {
+      return { ...agent, progress: 66, status: 'running' };
+    }
+    return { ...agent, progress: 0, status: 'pending' };
+  });
+  renderProcessingProgress();
+
+  state.processingTimerId = window.setTimeout(() => {
+    state.processingAgents = state.processingAgents.map((agent, index) => (
+      index === stepIndex
+        ? { ...agent, progress: 100, status: 'done' }
+        : agent
+    ));
+    renderProcessingProgress();
+    state.processingTimerId = window.setTimeout(() => {
+      runProcessingStep(stepIndex + 1);
+    }, 380);
+  }, 820);
+};
+
+const openProcessing = () => {
+  state.newUserSequenceStep = 'processing';
+  state.processingStepIndex = 0;
+  state.processingAgents = buildProcessingAgentsState();
+  state.processingAnimationDone = false;
+  state.processingDataLoaded = false;
+  state.processingAutoTransitionStarted = false;
+  ensureDashboardAfterAssessment();
+  hideAllPanels();
+  processingPanel.classList.remove('hidden');
+  renderProcessingProgress();
+  runProcessingStep(0);
+  void completeProcessingAndOpenReport();
+};
+
+const completeProcessingAndOpenReport = async () => {
+  processingStatusText.textContent = 'Подтягиваем итоговые оценки и формируем профиль компетенций.';
+
+  try {
+    await loadSkillAssessments();
+    state.processingDataLoaded = true;
+    tryOpenReportAfterProcessing();
+  } catch (error) {
+    processingStatusText.textContent = error.message;
+  }
+};
+
 const addInterviewMessage = (role, text) => {
   const row = document.createElement('div');
   row.className = 'interview-message' + (role === 'user' ? ' own' : '');
@@ -488,6 +957,7 @@ const handleAssessmentResponse = (data) => {
     }
 
   state.assessmentSessionCode = data.session_code;
+  state.assessmentSessionId = data.session_id;
   state.assessmentCaseNumber = data.case_number;
   state.assessmentTotalCases = data.total_cases;
   state.assessmentCaseTitle = data.case_title;
@@ -528,6 +998,7 @@ const handleAssessmentResponse = (data) => {
     interviewSubmitButton.disabled = true;
     interviewFinishButton.disabled = true;
     interviewFooterText.textContent = 'Ассессмент завершен';
+    openProcessing();
     return;
   }
 
@@ -569,10 +1040,7 @@ const submitAssessmentMessage = async (text) => {
       message: text,
     }),
   });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.detail || 'Не удалось обработать ответ по кейсу.');
-  }
+  const data = await readApiResponse(response, 'Не удалось обработать ответ по кейсу.');
   handleAssessmentResponse(data);
 };
 
@@ -599,10 +1067,7 @@ const startAssessmentInterview = async () => {
     const response = await fetch('/users/' + state.pendingUser.id + '/assessment/start', {
       method: 'POST',
     });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || 'Не удалось запустить интервью по кейсам.');
-    }
+    const data = await readApiResponse(response, 'Не удалось запустить интервью по кейсам.');
 
     hideLoader();
     handleAssessmentResponse(data);
@@ -671,11 +1136,7 @@ phoneForm.addEventListener('submit', async (event) => {
       },
       body: JSON.stringify({ phone: rawPhone }),
     });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || 'Не удалось проверить пользователя.');
-    }
+    const data = await readApiResponse(response, 'Не удалось проверить пользователя.');
 
     state.sessionId = data.agent.session_id;
     state.pendingAgentMessage = data.agent.message;
@@ -685,7 +1146,11 @@ phoneForm.addEventListener('submit', async (event) => {
 
     if (data.exists) {
       hideLoader();
-      openChat();
+      if (state.dashboard) {
+        openDashboard();
+      } else {
+        openChat();
+      }
       return;
     }
 
@@ -740,11 +1205,7 @@ chatForm.addEventListener('submit', async (event) => {
         message: text,
       }),
     });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || 'Не удалось обработать сообщение.');
-    }
+    const data = await readApiResponse(response, 'Не удалось обработать сообщение.');
 
     addMessage('bot', data.message);
     state.completed = data.completed;
@@ -875,6 +1336,19 @@ interviewFinishButton.addEventListener('click', async () => {
     interviewSubmitButton.disabled = false;
     interviewFinishButton.disabled = false;
   }
+});
+
+processingBackButton.addEventListener('click', () => {
+  clearProcessingTimer();
+  openDashboard();
+});
+
+reportHomeButton.addEventListener('click', () => {
+  openDashboard();
+});
+
+reportDownloadButton.addEventListener('click', () => {
+  window.print();
 });
 
 resetChat();

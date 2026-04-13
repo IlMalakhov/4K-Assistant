@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>4K Ассистент</title>
-  <link rel="stylesheet" href="/web/app.css">
+  <link rel="stylesheet" href="/web/app.css?v=20260413-1538">
 </head>
 <body>
   <div id="app-loader" class="app-loader hidden" aria-live="polite">
@@ -257,6 +257,121 @@
       </div>
     </section>
 
+    <section class="panel processing-panel hidden" id="processing-panel">
+      <div class="processing-topbar">
+        <button id="processing-back-button" class="ghost-button processing-back-button" type="button">← 4K Ассистент</button>
+        <span class="processing-safe-badge">Безопасная среда</span>
+      </div>
+
+      <div class="processing-shell">
+        <div class="processing-copy">
+          <h2>Анализируем ваши ответы...</h2>
+          <p>Наши алгоритмы обрабатывают данные сессии и формируют итоговый профиль по четырем направлениям оценки.</p>
+        </div>
+
+        <div class="processing-orbit">
+          <div class="processing-node top" id="processing-node-communication">Коммуникация</div>
+          <div class="processing-node left" id="processing-node-teamwork">Командная работа</div>
+          <div class="processing-node right" id="processing-node-creativity">Креативность</div>
+          <div class="processing-node center active" id="processing-node-critical">Критическое мышление</div>
+          <div class="processing-connector connector-top"></div>
+          <div class="processing-connector connector-left"></div>
+          <div class="processing-connector connector-right"></div>
+        </div>
+
+        <section class="processing-status-card">
+          <div class="processing-status-header">
+            <div>
+              <p class="section-label accent-label">Статус системы</p>
+              <h3>Общий прогресс анализа</h3>
+            </div>
+            <strong id="processing-total-progress">0%</strong>
+          </div>
+          <div class="processing-progress-track">
+            <div id="processing-total-progress-bar" class="processing-progress-fill"></div>
+          </div>
+          <p id="processing-status-text" class="processing-status-text">Подготавливаем мульти-агентную оценку по результатам кейсов.</p>
+        </section>
+
+        <section class="processing-agents-card">
+          <div class="processing-agents-header">
+            <p class="section-label">Активные агенты</p>
+            <span id="processing-phase-label">Этап 1 из 4</span>
+          </div>
+          <div id="processing-agents-list" class="processing-agents-list"></div>
+        </section>
+
+      </div>
+    </section>
+
+    <section class="panel report-panel hidden" id="report-panel">
+      <div class="dashboard-topbar">
+        <div class="brand dashboard-brand">Профиль компетенций</div>
+        <div class="dashboard-topbar-actions">
+          <button id="report-home-button" class="ghost-button compact-ghost" type="button">Главная</button>
+          <button id="report-download-button" class="primary-button compact-primary" type="button">Скачать PDF</button>
+        </div>
+      </div>
+
+      <div class="report-shell">
+        <section class="report-hero">
+          <div class="report-hero-copy">
+            <h2>Ваш профиль компетенций</h2>
+            <p id="report-summary-text">Глубокий анализ оценок по четырем направлениям и детализация результатов по каждому навыку.</p>
+          </div>
+          <div class="report-hero-score">
+            <strong id="report-overall-score">0%</strong>
+            <span>Интегральный показатель</span>
+          </div>
+        </section>
+
+        <section class="report-overview-grid">
+          <article class="report-profile-card">
+            <p class="section-label accent-label">Профиль пользователя</p>
+            <div class="report-profile-user">
+              <div id="report-profile-avatar" class="user-avatar">A</div>
+              <div>
+                <strong id="report-profile-name">Пользователь</strong>
+                <span id="report-profile-role">Должность не указана</span>
+              </div>
+            </div>
+            <div class="report-profile-box">
+              <strong>Рекомендации по росту</strong>
+              <ul id="report-recommendations" class="report-recommendations"></ul>
+            </div>
+          </article>
+
+          <article class="report-competencies-card">
+            <div class="report-card-head">
+              <div>
+                <p class="section-label accent-label">Навыки 4K</p>
+                <h3>Сводные показатели по компетенциям</h3>
+              </div>
+            </div>
+            <div id="report-competency-bars" class="report-competency-bars"></div>
+          </article>
+
+          <article class="report-insight-card">
+            <p class="section-label accent-label">AI insights</p>
+            <h3 id="report-strength-title">Сильная сторона пока формируется</h3>
+            <p id="report-strength-text">Здесь появится интерпретация результатов после завершения анализа и загрузки данных по навыкам.</p>
+          </article>
+        </section>
+
+        <section class="report-details-card">
+          <div class="report-card-head report-details-head">
+            <div>
+              <p class="section-label">Детализация компетенций</p>
+              <h3 id="report-detail-title">Коммуникация</h3>
+            </div>
+            <div id="report-tabs" class="report-tabs"></div>
+          </div>
+
+          <div id="report-detail-list" class="report-detail-list"></div>
+        </section>
+      </div>
+    </section>
+
     <section class="panel chat-panel hidden" id="chat-panel">
       <div class="chat-header">
         <div>
@@ -277,6 +392,6 @@
     </section>
   </main>
 
-  <script src="/web/app.js" defer></script>
+  <script src="/web/app.js?v=20260413-1538" defer></script>
 </body>
 </html>
