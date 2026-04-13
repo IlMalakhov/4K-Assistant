@@ -78,9 +78,22 @@ class BaseCompetencyAgent:
         for skill in skills:
             case_payload = self._load_case_payload_for_skill(connection, session_id, skill["skill_id"])
             if not case_payload:
+                evaluation = self._build_na_evaluation(
+                    skill=skill,
+                    rationale="По данному навыку в сессии отсутствуют связанные кейсы или сообщения пользователя.",
+                )
+                self._save_evaluation(connection, session_id, user_id, evaluation)
+                evaluations.append(evaluation)
                 continue
+
             case_payload = [payload for payload in case_payload if not payload.get("is_refusal_case", False)]
             if not case_payload:
+                evaluation = self._build_na_evaluation(
+                    skill=skill,
+                    rationale="По данному навыку не осталось валидных пользовательских ответов: кейсы были пропущены, завершены без ответа или отмечены как отказные.",
+                )
+                self._save_evaluation(connection, session_id, user_id, evaluation)
+                evaluations.append(evaluation)
                 continue
 
             user_text = "\n".join(payload["user_text"] for payload in case_payload if payload["user_text"]).strip()
@@ -118,6 +131,23 @@ class BaseCompetencyAgent:
             self._save_evaluation(connection, session_id, user_id, evaluation)
             evaluations.append(evaluation)
         return evaluations
+
+    def _build_na_evaluation(self, *, skill: dict[str, Any], rationale: str) -> SkillEvaluation:
+        return SkillEvaluation(
+            skill_id=skill["skill_id"],
+            competency_skill_id=skill["competency_skill_id"],
+            skill_code=skill["skill_code"],
+            skill_name=skill["skill_name"],
+            competency_name=skill["competency_name"],
+            level_code="N/A",
+            level_name=LEVEL_NAMES["N/A"],
+            rubric_match_scores={"L1": 0, "L2": 0, "L3": 0},
+            structural_elements={},
+            red_flags=[],
+            rationale=rationale,
+            evidence_excerpt="",
+            source_session_case_ids=[],
+        )
 
     def _load_session_skills(self, connection, session_id: int) -> list[dict[str, Any]]:
         rows = connection.execute(
