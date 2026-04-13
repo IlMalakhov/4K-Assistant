@@ -143,7 +143,7 @@ class InterviewerAgent:
 
     def tokenize(self, value: str | None) -> set[str]:
         normalized = self.normalize_text(value)
-        tokens = set()
+        tokens: set[str] = set()
         for token in normalized.split():
             if len(token) < 4:
                 continue
