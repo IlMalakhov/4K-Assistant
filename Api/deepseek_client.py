@@ -69,6 +69,7 @@ class DeepSeekClient:
         full_name: str | None,
         position: str | None,
         duties: str | None,
+        company_industry: str | None,
         role_name: str | None,
         user_profile: dict[str, Any] | None = None,
         case_title: str,
@@ -81,10 +82,15 @@ class DeepSeekClient:
     ) -> str:
         position = self._normalize_profile_text(position, fallback=role_name or "Не указана")
         duties = self._normalize_profile_text(duties, fallback="Не указаны")
+        company_industry = self._normalize_profile_text(
+            company_industry,
+            fallback=str((user_profile or {}).get("company_industry") or (user_profile or {}).get("user_domain") or "Не указана"),
+        )
         personalization_map = personalization_map or self.generate_personalization_map(
             full_name=full_name,
             position=position,
             duties=duties,
+            company_industry=company_industry,
             role_name=role_name,
             user_profile=user_profile,
             case_title=case_title,
@@ -114,7 +120,7 @@ class DeepSeekClient:
             )
 
         prompt = (
-            "Сформируй системный промпт для AI-агента 'Коммуникатор'. "
+            "Сформируй системный промпт для AI-агента 'Интервьюер'. "
             "Агент проводит интервью по бизнес-кейсу, задает уточняющие вопросы, "
             "фиксирует ответы пользователя и помогает раскрыть ход рассуждений. "
             "Агент не оценивает пользователя и не выносит вердикт по качеству ответа. "
@@ -123,6 +129,7 @@ class DeepSeekClient:
             f"Роль пользователя: {role_name or 'Не определена'}\n"
             f"Должность: {position or 'Не указана'}\n"
             f"Обязанности: {duties or 'Не указаны'}\n"
+            f"Сфера деятельности компании: {company_industry or 'Не указана'}\n"
             f"Профиль пользователя: {json.dumps(user_profile or {}, ensure_ascii=False)}\n"
             f"Кейс: {case_title}\n"
             f"Оригинальный шаблон контекста: {case_context}\n"
@@ -145,17 +152,19 @@ class DeepSeekClient:
                 ],
                 temperature=0.2,
             ).strip()
-            return self._sanitize_case_prompt_text(
+            sanitized = self._sanitize_case_prompt_text(
                 generated or fallback,
                 role_name=role_name,
                 planned_total_duration_min=planned_total_duration_min,
             )
+            return self._proofread_case_prompt_text(sanitized)
         except Exception:
-            return self._sanitize_case_prompt_text(
+            sanitized = self._sanitize_case_prompt_text(
                 fallback,
                 role_name=role_name,
                 planned_total_duration_min=planned_total_duration_min,
             )
+            return self._proofread_case_prompt_text(sanitized)
 
     def build_personalized_case_materials(
         self,
@@ -163,6 +172,7 @@ class DeepSeekClient:
         full_name: str | None,
         position: str | None,
         duties: str | None,
+        company_industry: str | None,
         role_name: str | None,
         user_profile: dict[str, Any] | None = None,
         case_title: str,
@@ -175,6 +185,7 @@ class DeepSeekClient:
             full_name=full_name,
             position=position,
             duties=duties,
+            company_industry=company_industry,
             role_name=role_name,
             user_profile=user_profile,
             case_title=case_title,
@@ -229,6 +240,48 @@ class DeepSeekClient:
             return result or None
         except Exception:
             return None
+
+    def normalize_company_industry(
+        self,
+        *,
+        company_industry: str | None,
+        position: str | None = None,
+        duties: str | None = None,
+    ) -> str | None:
+        cleaned = (company_industry or "").strip()
+        if not cleaned:
+            return None
+
+        fallback = self._fallback_normalize_company_industry(cleaned)
+        if not self.enabled:
+            return fallback
+
+        prompt = (
+            "Нормализуй сферу деятельности компании до краткой предметной формулировки в родительном падеже. "
+            "Верни только JSON с полем company_industry_normalized. "
+            "Примеры корректного формата: "
+            "\"финансовых услуг\", \"информационных технологий\", \"розничной торговли\", \"логистики и транспорта\". "
+            "Не добавляй пояснений и не придумывай новую отрасль, если исходный ввод уже понятен.\n\n"
+            f"Сфера деятельности компании: {cleaned}\n"
+            f"Должность пользователя: {position or 'Не указана'}\n"
+            f"Обязанности пользователя: {duties or 'Не указаны'}"
+        )
+        try:
+            raw = self._post_chat(
+                [
+                    {
+                        "role": "system",
+                        "content": "Ты нормализуешь отрасли и сферы деятельности компаний для внутренних профилей сотрудников.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+            )
+            parsed = self._parse_json(raw)
+            normalized = str(parsed.get("company_industry_normalized") or "").strip()
+            return normalized or fallback
+        except Exception:
+            return fallback
 
     def determine_role(
         self,
@@ -309,6 +362,7 @@ class DeepSeekClient:
         full_name: str | None,
         position: str | None,
         duties: str | None,
+        company_industry: str | None,
         role_name: str | None,
         user_profile: dict[str, Any] | None,
         case_title: str,
@@ -326,6 +380,7 @@ class DeepSeekClient:
             placeholders=placeholders,
             position=position,
             duties=duties,
+            company_industry=company_industry,
             role_name=role_name,
             user_profile=user_profile,
             planned_total_duration_min=planned_total_duration_min,
@@ -342,6 +397,7 @@ class DeepSeekClient:
             f"Роль: {role_name or 'Не определена'}\n"
             f"Должность: {position or 'Не указана'}\n"
             f"Обязанности: {duties or 'Не указаны'}\n"
+            f"Сфера деятельности компании: {company_industry or 'Не указана'}\n"
             f"Профиль пользователя: {json.dumps(user_profile or {}, ensure_ascii=False)}\n"
             f"Кейс: {case_title}\n"
             f"Контекст шаблона: {case_context}\n"
@@ -405,7 +461,7 @@ class DeepSeekClient:
         user_turns = sum(1 for item in dialogue if item["role"] == "user")
 
         instruction = (
-            "Ты агент Коммуникатор и ведешь живое интервью по кейсу. "
+            "Ты агент Интервьюер и ведешь живое интервью по кейсу. "
             "Твоя задача не просто принять ответ, а раскрыть мышление пользователя. "
             "Уточняй цель решения, ключевые шаги, риски, метрики, стейкхолдеров, ограничения и ожидаемый эффект. "
             f"В этом кейсе особенно важно раскрыть навыки: {', '.join(case_skills) if case_skills else 'не указаны'}. "
@@ -504,7 +560,7 @@ class DeepSeekClient:
         personalization_map: dict[str, str],
     ) -> str:
         return (
-            "Ты агент Коммуникатор в системе Agent_4K. "
+            "Ты агент Интервьюер в системе Agent_4K. "
             f"Проводишь интервью по кейсу «{case_title}» для пользователя {full_name or 'без имени'}. "
             f"Роль: {role_name or 'не определена'}. "
             f"Должность: {position or 'не указана'}. "
@@ -640,11 +696,17 @@ class DeepSeekClient:
         placeholders: list[str],
         position: str | None,
         duties: str | None,
+        company_industry: str | None,
         role_name: str | None,
         user_profile: dict[str, Any] | None,
         planned_total_duration_min: int | None,
     ) -> dict[str, str]:
-        domain = str((user_profile or {}).get("user_domain") or self._infer_domain(position=position, duties=duties))
+        normalized_company_industry = self.normalize_company_industry(
+            company_industry=company_industry,
+            position=position,
+            duties=duties,
+        )
+        domain = str((user_profile or {}).get("user_domain") or normalized_company_industry or self._infer_domain(position=position, duties=duties, company_industry=company_industry))
         profile_context = user_profile or {}
         profile_processes = profile_context.get("user_processes") or []
         profile_tasks = profile_context.get("user_tasks") or []
@@ -657,6 +719,7 @@ class DeepSeekClient:
         values = {
             "роль_кратко": role_name or position or "специалист по направлению",
             "контекст обязанностей": duties or ", ".join(profile_tasks[:3]) or "координацию рабочих задач и сопровождение внутренних процессов",
+            "сфера деятельности компании": normalized_company_industry or domain,
             "процесс/сервис": process,
             "система": f"корпоративная система {domain}",
             "тип клиента": client_type,
@@ -679,7 +742,10 @@ class DeepSeekClient:
             )
         return result
 
-    def _infer_domain(self, *, position: str | None, duties: str | None) -> str:
+    def _infer_domain(self, *, position: str | None, duties: str | None, company_industry: str | None = None) -> str:
+        company_value = self._fallback_normalize_company_industry(company_industry)
+        if company_value:
+            return company_value
         source = f"{position or ''} {duties or ''}".lower()
         mapping = [
             (("аналитик", "бизнес", "постановк", "требован"), "бизнес-аналитики"),
@@ -720,6 +786,8 @@ class DeepSeekClient:
 
     def _generic_value(self, placeholder: str, domain: str, process: str, client_type: str) -> str:
         label = placeholder.lower()
+        if "сфера деятельности" in label or ("компан" in label and "сфера" in label):
+            return domain
         if "масштаб" in label:
             return "уровень участка"
         if "идея" in label:
@@ -753,6 +821,30 @@ class DeepSeekClient:
         if "контекст" in label or "обязанност" in label:
             return f"рабочий контекст процесса {process}"
         return f"процесс {process} в области {domain}"
+
+    def _fallback_normalize_company_industry(self, company_industry: str | None) -> str | None:
+        cleaned = (company_industry or "").strip().lower().replace("ё", "е")
+        if not cleaned:
+            return None
+        mapping = [
+            (("банк", "финанс", "страх", "инвест"), "финансовых услуг"),
+            (("it", "айти", "software", "saas", "цифров", "разработк", "продукт"), "информационных технологий"),
+            (("ритейл", "рознич", "магазин", "e-commerce", "ecommerce", "маркетплейс"), "розничной торговли"),
+            (("логист", "склад", "достав", "транспорт"), "логистики и транспорта"),
+            (("телеком", "связ", "оператор"), "телекоммуникаций"),
+            (("медиц", "здрав", "фарма", "клиник"), "здравоохранения и фармацевтики"),
+            (("образован", "обучен", "университет", "школ"), "образования"),
+            (("производ", "завод", "фабрик", "промышл"), "производства"),
+            (("строит", "девелоп", "недвиж"), "строительства и недвижимости"),
+            (("госс", "государ", "муницип", "бюджет"), "государственного сектора"),
+            (("энерг", "нефт", "газ", "электр"), "энергетики"),
+            (("агро", "сельск", "ферм"), "агропромышленного комплекса"),
+            (("маркет", "реклам", "бренд", "pr"), "маркетинга и рекламы"),
+        ]
+        for hints, value in mapping:
+            if any(hint in cleaned for hint in hints):
+                return value
+        return company_industry.strip() or None
 
     def _normalize_profile_text(self, value: str | None, *, fallback: str) -> str:
         cleaned = (value or "").strip()
@@ -796,6 +888,9 @@ class DeepSeekClient:
         planned_total_duration_min: int | None,
     ) -> str:
         result = text or ""
+        result = result.replace("агент Коммуникатор", "агент Интервьюер")
+        result = result.replace("Агент Коммуникатор", "Агент Интервьюер")
+        result = result.replace("AI-агента 'Коммуникатор'", "AI-агента 'Интервьюер'")
         scope_text = self._resolve_role_scope(role_name)
         result = re.sub(
             r"для\s+L\s*[—-]\s*участок(?:а)?\s*,?\s*для\s+M\s*[—-]\s*команда(?:\s*или\s*процесс)?",
@@ -807,10 +902,91 @@ class DeepSeekClient:
         result = result.replace("Нет измеенний", "Не указаны")
         result = re.sub(r"\b(изменений нет|нет изменений|нет измеенний|не изменилось|не изменений|без изменений)\b", role_name or "Не указано", result, flags=re.IGNORECASE)
         result = re.sub(r"рабочий контекст в области [^.,;\n\"]+", "рабочий контекст процесса, соответствующего кейсу и профилю пользователя", result, flags=re.IGNORECASE)
+        result = re.sub(r"\.\.\.\s*", ". ", result)
+        result = re.sub(r"\s*\.\s*рике\b", ". Метрике", result, flags=re.IGNORECASE)
+        result = re.sub(r"\s*\.\s*метрике\b", ". Метрике", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bна метрике\b", "по метрике", result, flags=re.IGNORECASE)
         result = re.sub(r"\s{2,}", " ", result)
         result = re.sub(r"\.\.", ".", result)
         result = re.sub(r"\n\s*\n+", "\n", result)
+        result = self._normalize_prompt_sentences(result)
         return result.strip()
+
+    def _normalize_prompt_sentences(self, text: str) -> str:
+        normalized_lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            line = re.sub(r"\s{2,}", " ", line)
+            if line and line[0].islower():
+                line = line[0].upper() + line[1:]
+            if line[-1] not in ".!?:":
+                line += "."
+            normalized_lines.append(line)
+        result = "\n".join(normalized_lines)
+        result = re.sub(r"([.!?])\s+([а-яё])", lambda m: f"{m.group(1)} {m.group(2).upper()}", result)
+        result = re.sub(r"\s+([.,!?;:])", r"\1", result)
+        return result
+
+    def _proofread_case_prompt_text(self, text: str) -> str:
+        fallback = self._fallback_proofread_case_prompt_text(text)
+        if not self.enabled:
+            return fallback
+
+        prompt = (
+            "Исправь текст системного промпта для интервью по кейсу. "
+            "Нужно исправить только орфографию, опечатки, пробелы, пунктуацию, регистр букв "
+            "и очевидные ошибки согласования слов по падежу, числу и роду. "
+            "Нельзя менять смысл, структуру, набор фактов, роль пользователя, условия кейса, "
+            "названия сущностей и логику инструкций. "
+            "Не сокращай текст и не добавляй новые требования. "
+            "Верни только исправленный текст без markdown и пояснений.\n\n"
+            f"Текст промпта:\n{text}"
+        )
+        try:
+            corrected = self._post_chat(
+                [
+                    {
+                        "role": "system",
+                        "content": "Ты аккуратно вычитываешь русскоязычные промпты, исправляя орфографию и пунктуацию без изменения смысла.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+            ).strip()
+            normalized = self._strip_markdown_fences(corrected or fallback)
+            return self._fallback_proofread_case_prompt_text(normalized)
+        except Exception:
+            return fallback
+
+    def _fallback_proofread_case_prompt_text(self, text: str) -> str:
+        result = text or ""
+        replacements = {
+            "Интерьюер": "Интервьюер",
+            "интерьюер": "интервьюер",
+            "не указаны. .": "не указаны.",
+            "не указана. .": "не указана.",
+            "Не указаны. .": "Не указаны.",
+            "Не указана. .": "Не указана.",
+            "ввиде": "в виде",
+            "т.к.": "так как",
+        }
+        for source, target in replacements.items():
+            result = result.replace(source, target)
+        result = re.sub(r"\s{2,}", " ", result)
+        result = re.sub(r"\n\s*\n+", "\n", result)
+        result = re.sub(r"([.!?])\1+", r"\1", result)
+        result = re.sub(r"\s+([,.;:!?])", r"\1", result)
+        result = self._normalize_prompt_sentences(result)
+        return result.strip()
+
+    def _strip_markdown_fences(self, text: str) -> str:
+        cleaned = text.strip()
+        if cleaned.startswith("```") and cleaned.endswith("```"):
+            cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+            cleaned = re.sub(r"\n?```$", "", cleaned)
+        return cleaned.strip()
 
 
 deepseek_client = DeepSeekClient()

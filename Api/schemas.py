@@ -19,6 +19,7 @@ class UserResponse(BaseModel):
     role_rationale: str | None = None
     active_profile_id: int | None = None
     phone: str | None = None
+    company_industry: str | None = None
 
 
 class CheckOrCreateUserRequest(BaseModel):

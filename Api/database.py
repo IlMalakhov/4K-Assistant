@@ -15,3 +15,14 @@ def get_connection() -> psycopg.Connection:
         password=settings.db_password,
         row_factory=dict_row,
     )
+
+
+def ensure_core_schema() -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS company_industry TEXT
+            """
+        )
+        connection.commit()

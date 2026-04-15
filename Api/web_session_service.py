@@ -20,7 +20,8 @@ USER_SELECT_SQL = """
         p.role_confidence,
         p.role_rationale,
         u.active_profile_id,
-        u.phone
+        u.phone,
+        u.company_industry
     FROM users u
     LEFT JOIN user_role_profiles p ON p.id = u.active_profile_id
 """

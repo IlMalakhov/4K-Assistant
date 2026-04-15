@@ -117,7 +117,8 @@ USER_SELECT_SQL = """
         p.role_confidence,
         p.role_rationale,
         u.active_profile_id,
-        u.phone
+        u.phone,
+        u.company_industry
     FROM users u
     LEFT JOIN user_role_profiles p ON p.id = u.active_profile_id
 """
@@ -131,6 +132,7 @@ class ConversationMode(StrEnum):
 class ConversationStage(StrEnum):
     ASK_POSITION = "ask_position"
     ASK_DUTIES = "ask_duties"
+    ASK_COMPANY_INDUSTRY = "ask_company_industry"
     ASK_FULL_NAME = "ask_full_name"
     COMPLETE = "complete"
 
@@ -155,6 +157,7 @@ class ConversationState:
     full_name: str | None = None
     position: str | None = None
     duties: str | None = None
+    company_industry: str | None = None
     history: list[dict[str, str]] = field(default_factory=list)
 
 
@@ -213,6 +216,48 @@ class InterviewerAgent:
             return None
         cleaned = " ".join(position.split())
         return cleaned or None
+
+    def _normalize_company_industry_fallback(self, company_industry: str | None) -> str | None:
+        cleaned = self.normalize_text(company_industry)
+        if not cleaned:
+            return None
+
+        mapping = [
+            (("банк", "финанс", "страх", "инвест"), "финансовых услуг"),
+            (("it", "айти", "разработк", "продукт", "цифров", "saas", "software"), "информационных технологий"),
+            (("ритейл", "рознич", "магазин", "ecommerce", "маркетплейс"), "розничной торговли"),
+            (("логист", "склад", "достав", "транспорт"), "логистики и транспорта"),
+            (("телеком", "связ", "оператор"), "телекоммуникаций"),
+            (("медиц", "здрав", "фарма", "клиник"), "здравоохранения и фармацевтики"),
+            (("образован", "обучен", "университет", "школ"), "образования"),
+            (("производ", "завод", "фабрик", "промышл"), "производства"),
+            (("строит", "девелоп", "недвиж"), "строительства и недвижимости"),
+            (("госс", "государ", "муницип", "бюджет"), "государственного сектора"),
+            (("энерг", "нефт", "газ", "электр"), "энергетики"),
+            (("агро", "сельск", "ферм"), "агропромышленного комплекса"),
+            (("hr", "персонал", "рекрут"), "кадровых и HR-услуг"),
+            (("маркет", "реклам", "бренд", "pr"), "маркетинга и рекламы"),
+        ]
+        for hints, label in mapping:
+            if any(hint in cleaned for hint in hints):
+                return label
+
+        return company_industry.strip() or None
+
+    def normalize_company_industry(
+        self,
+        company_industry: str | None,
+        *,
+        position: str | None = None,
+        duties: str | None = None,
+        normalized_duties: str | None = None,
+    ) -> str | None:
+        normalized = deepseek_client.normalize_company_industry(
+            company_industry=company_industry,
+            position=position,
+            duties=duties or normalized_duties,
+        )
+        return normalized or self._normalize_company_industry_fallback(company_industry)
 
     def _cleanup_duty_item(self, item: str) -> str | None:
         cleaned = item.strip(" \t\n\r-•—,;:.")
@@ -399,7 +444,10 @@ class InterviewerAgent:
         roles = self._load_roles()
         return self._heuristic_detect_role(position, duties, normalized_duties, roles)
 
-    def _infer_domain(self, position: str | None, duties: str | None) -> str:
+    def _infer_domain(self, position: str | None, duties: str | None, company_industry: str | None = None) -> str:
+        normalized_company_industry = self.normalize_company_industry(company_industry, position=position, duties=duties)
+        if normalized_company_industry:
+            return normalized_company_industry
         source = self.normalize_text(" ".join(filter(None, [position or "", duties or ""])))
         mapping = [
             (("аналитик", "требован", "постановк"), "бизнес-аналитика"),
@@ -564,11 +612,18 @@ class InterviewerAgent:
         position: str | None,
         duties: str | None,
         normalized_duties: str | None,
+        company_industry: str | None,
         role: dict | None,
         role_match: RoleMatch | None,
     ) -> dict:
         source_text = self.normalize_text(" ".join(filter(None, [position or "", duties or "", normalized_duties or ""])))
-        domain = self._infer_domain(position, duties or normalized_duties)
+        normalized_company_industry = self.normalize_company_industry(
+            company_industry,
+            position=position,
+            duties=duties,
+            normalized_duties=normalized_duties,
+        )
+        domain = normalized_company_industry or self._infer_domain(position, duties or normalized_duties, company_industry)
         processes = self._extract_user_processes(normalized_duties, position, duties)
         tasks = self._parse_bullets(normalized_duties) or processes
         stakeholders = self._extract_stakeholders(role_match.code if role_match else None, source_text)
@@ -578,6 +633,8 @@ class InterviewerAgent:
         role_vocabulary = self._build_role_vocabulary(role or {}, role_match.code if role_match else "", normalized_duties) if role and role_match else {}
         context_vars = {
             "domain": domain,
+            "company_industry": normalized_company_industry,
+            "company_industry_raw": company_industry,
             "position": position,
             "role_code": role_match.code if role_match else None,
             "role_name": role_match.name if role_match else None,
@@ -608,6 +665,7 @@ class InterviewerAgent:
         raw_position: str | None,
         raw_duties: str | None,
         normalized_duties: str | None,
+        company_industry: str | None,
         role_match: RoleMatch | None,
     ) -> int:
         roles = self._load_roles()
@@ -616,6 +674,7 @@ class InterviewerAgent:
             position=raw_position,
             duties=raw_duties,
             normalized_duties=normalized_duties,
+            company_industry=company_industry,
             role=role,
             role_match=role_match,
         )
@@ -684,6 +743,7 @@ class InterviewerAgent:
         phone: str,
         position: str | None,
         duties: str | None,
+        company_industry: str | None,
     ) -> tuple[UserResponse, RoleMatch | None]:
         generated_email = f"user-{uuid4().hex[:12]}@auto.local"
         clean_position = self._clean_position(position)
@@ -693,9 +753,9 @@ class InterviewerAgent:
             row = connection.execute(
                 """
                 INSERT INTO users (
-                    full_name, email, phone, job_description, role_id
+                    full_name, email, phone, job_description, role_id, company_industry
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -704,6 +764,7 @@ class InterviewerAgent:
                     phone,
                     clean_position,
                     role_match.role_id if role_match else None,
+                    company_industry,
                 ),
             ).fetchone()
             self._save_user_profile(
@@ -712,6 +773,7 @@ class InterviewerAgent:
                 raw_position=position,
                 raw_duties=duties,
                 normalized_duties=normalized_duties,
+                company_industry=company_industry,
                 role_match=role_match,
             )
             connection.commit()
@@ -725,6 +787,7 @@ class InterviewerAgent:
         user_id: int,
         position: str | None,
         duties: str | None,
+        company_industry: str | None,
     ) -> tuple[UserResponse, RoleMatch | None]:
         clean_position = self._clean_position(position)
         normalized_duties = self.normalize_duties(clean_position, duties)
@@ -734,13 +797,15 @@ class InterviewerAgent:
                 """
                 UPDATE users
                 SET job_description = %s,
-                    role_id = %s
+                    role_id = %s,
+                    company_industry = %s
                 WHERE id = %s
                 RETURNING id
                 """,
                 (
                     clean_position,
                     role_match.role_id if role_match else None,
+                    company_industry,
                     user_id,
                 ),
             ).fetchone()
@@ -750,6 +815,7 @@ class InterviewerAgent:
                 raw_position=position,
                 raw_duties=duties,
                 normalized_duties=normalized_duties,
+                company_industry=company_industry,
                 role_match=role_match,
             )
             connection.commit()
@@ -770,6 +836,7 @@ class InterviewerAgent:
                 full_name=user.full_name,
                 position=user.raw_position or user.job_description,
                 duties=user.raw_duties,
+                company_industry=user.company_industry,
             )
             reply_text = (
                 f"Пользователь найден: {user.full_name}. "
@@ -871,11 +938,27 @@ class InterviewerAgent:
                 completed=False,
             )
 
-        state.duties = text
+        if state.stage == ConversationStage.ASK_DUTIES:
+            state.duties = text
+            state.stage = ConversationStage.ASK_COMPANY_INDUSTRY
+            reply_text = (
+                "Спасибо. Теперь укажите сферу деятельности компании, в которой вы работаете. "
+                "Например: банк, retail, телеком, производство, IT-продукт."
+            )
+            state.history.append({"role": "assistant", "content": reply_text})
+            return AgentReply(
+                session_id=state.session_id,
+                message=reply_text,
+                stage=state.stage,
+                completed=False,
+            )
+
+        state.company_industry = text
         user, role_match = self.update_user(
             user_id=state.user_id or 0,
             position=state.position,
             duties=state.duties,
+            company_industry=state.company_industry,
         )
         state.user = user
         state.stage = ConversationStage.COMPLETE
@@ -939,12 +1022,28 @@ class InterviewerAgent:
                 completed=False,
             )
 
-        state.duties = text
+        if state.stage == ConversationStage.ASK_DUTIES:
+            state.duties = text
+            state.stage = ConversationStage.ASK_COMPANY_INDUSTRY
+            reply_text = (
+                "Отлично. Теперь укажите сферу деятельности компании, в которой вы работаете. "
+                "Например: банк, retail, телеком, производство, IT-продукт."
+            )
+            state.history.append({"role": "assistant", "content": reply_text})
+            return AgentReply(
+                session_id=state.session_id,
+                message=reply_text,
+                stage=state.stage,
+                completed=False,
+            )
+
+        state.company_industry = text
         user, role_match = self.create_user(
             full_name=state.full_name or "",
             phone=state.phone,
             position=state.position,
             duties=state.duties,
+            company_industry=state.company_industry,
         )
         state.user = user
         state.stage = ConversationStage.COMPLETE
