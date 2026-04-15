@@ -442,7 +442,24 @@ class InterviewerAgent:
             return None
 
         roles = self._load_roles()
-        return self._heuristic_detect_role(position, duties, normalized_duties, roles)
+        detected = self._heuristic_detect_role(position, duties, normalized_duties, roles)
+        if detected is not None:
+            return detected
+
+        fallback_role = next((role for role in roles if role.get("code") == "linear_employee"), None)
+        if fallback_role is None:
+            return None
+
+        return RoleMatch(
+            role_id=fallback_role["id"],
+            code=fallback_role["code"],
+            name=fallback_role["name"],
+            confidence=0.55,
+            rationale=(
+                "Явных признаков менеджерской или лидерской роли не обнаружено. "
+                "По умолчанию профиль отнесен к роли линейного сотрудника как к базовому исполнительскому уровню."
+            ),
+        )
 
     def _infer_domain(self, position: str | None, duties: str | None, company_industry: str | None = None) -> str:
         normalized_company_industry = self.normalize_company_industry(company_industry, position=position, duties=duties)
