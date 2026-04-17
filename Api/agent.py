@@ -10,6 +10,7 @@ from uuid import uuid4
 from Api.assessment_service import assessment_service
 from Api.database import get_connection
 from Api.deepseek_client import deepseek_client
+from Api.progress_service import operation_progress_service
 from Api.schemas import (
     AgentReply,
     AssessmentMessageResponse,
@@ -761,10 +762,23 @@ class InterviewerAgent:
         position: str | None,
         duties: str | None,
         company_industry: str | None,
+        progress_operation_id: str | None = None,
     ) -> tuple[UserResponse, RoleMatch | None]:
         generated_email = f"user-{uuid4().hex[:12]}@auto.local"
         clean_position = self._clean_position(position)
+        operation_progress_service.advance(
+            progress_operation_id,
+            1,
+            title="Очищаем и нормализуем данные",
+            message="Нормализуем текст обязанностей и готовим данные профиля.",
+        )
         normalized_duties = self.normalize_duties(clean_position, duties)
+        operation_progress_service.advance(
+            progress_operation_id,
+            2,
+            title="Определяем роль пользователя",
+            message="Сопоставляем профиль пользователя с доступными ролевыми моделями.",
+        )
         role_match = self.detect_role(clean_position, duties, normalized_duties)
         with get_connection() as connection:
             row = connection.execute(
@@ -784,6 +798,12 @@ class InterviewerAgent:
                     company_industry,
                 ),
             ).fetchone()
+            operation_progress_service.advance(
+                progress_operation_id,
+                3,
+                title="Формируем расширенный профиль",
+                message="Сохраняем контекст пользователя для персонализации кейсов.",
+            )
             self._save_user_profile(
                 connection=connection,
                 user_id=row["id"],
@@ -805,9 +825,22 @@ class InterviewerAgent:
         position: str | None,
         duties: str | None,
         company_industry: str | None,
+        progress_operation_id: str | None = None,
     ) -> tuple[UserResponse, RoleMatch | None]:
         clean_position = self._clean_position(position)
+        operation_progress_service.advance(
+            progress_operation_id,
+            1,
+            title="Очищаем и нормализуем данные",
+            message="Нормализуем текст обязанностей и обновляем данные профиля.",
+        )
         normalized_duties = self.normalize_duties(clean_position, duties)
+        operation_progress_service.advance(
+            progress_operation_id,
+            2,
+            title="Определяем роль пользователя",
+            message="Переоцениваем ролевой профиль на основе обновленных данных.",
+        )
         role_match = self.detect_role(clean_position, duties, normalized_duties)
         with get_connection() as connection:
             row = connection.execute(
@@ -826,6 +859,12 @@ class InterviewerAgent:
                     user_id,
                 ),
             ).fetchone()
+            operation_progress_service.advance(
+                progress_operation_id,
+                3,
+                title="Формируем расширенный профиль",
+                message="Пересобираем профиль пользователя для дальнейшей персонализации.",
+            )
             self._save_user_profile(
                 connection=connection,
                 user_id=user_id,
@@ -885,7 +924,7 @@ class InterviewerAgent:
             user=user,
         )
 
-    def reply(self, session_id: str, message: str) -> AgentReply:
+    def reply(self, session_id: str, message: str, progress_operation_id: str | None = None) -> AgentReply:
         text = _trimmed(message)
         if not text:
             raise ValueError("Message is required")
@@ -899,8 +938,8 @@ class InterviewerAgent:
         state.history.append({"role": "user", "content": text})
 
         if state.mode == ConversationMode.EXISTING_USER:
-            return self._handle_existing_user(state, text)
-        return self._handle_new_user(state, text)
+            return self._handle_existing_user(state, text, progress_operation_id=progress_operation_id)
+        return self._handle_new_user(state, text, progress_operation_id=progress_operation_id)
 
     def _build_role_reply_suffix(self, role_match: RoleMatch | None) -> str:
         if role_match is None:
@@ -912,7 +951,7 @@ class InterviewerAgent:
             f"Причина: {role_match.rationale}"
         )
 
-    def _handle_existing_user(self, state: ConversationState, text: str) -> AgentReply:
+    def _handle_existing_user(self, state: ConversationState, text: str, *, progress_operation_id: str | None = None) -> AgentReply:
         if state.stage == ConversationStage.COMPLETE:
             return AgentReply(
                 session_id=state.session_id,
@@ -923,7 +962,13 @@ class InterviewerAgent:
 
         if _means_no_changes(text):
             state.stage = ConversationStage.COMPLETE
-            plan = assessment_service.ensure_assessment_session(state.user) if state.user is not None else None
+            operation_progress_service.advance(
+                progress_operation_id,
+                4,
+                title="Подготавливаем следующий экран",
+                message="Профиль актуален. Проверяем оценочную сессию и готовим следующий шаг.",
+            )
+            plan = assessment_service.ensure_assessment_session(state.user, progress_operation_id=progress_operation_id) if state.user is not None else None
             reply_text = "Спасибо за информацию. Повторно заполнять профиль не требуется."
             if plan is not None:
                 reply_text += (
@@ -976,10 +1021,17 @@ class InterviewerAgent:
             position=state.position,
             duties=state.duties,
             company_industry=state.company_industry,
+            progress_operation_id=progress_operation_id,
         )
         state.user = user
         state.stage = ConversationStage.COMPLETE
-        plan = assessment_service.ensure_assessment_session(user)
+        operation_progress_service.advance(
+            progress_operation_id,
+            4,
+            title="Подготавливаем следующий экран",
+            message="Профиль обновлен. Проверяем оценочную сессию и финализируем сценарий.",
+        )
+        plan = assessment_service.ensure_assessment_session(user, progress_operation_id=progress_operation_id)
         reply_text = "Готово. Я обновил данные пользователя в базе. " + self._build_role_reply_suffix(role_match)
         if user.normalized_duties:
             reply_text += " Нормализованный список обязанностей также сохранен в профиле."
@@ -1006,7 +1058,7 @@ class InterviewerAgent:
             assessment_total_cases=plan.total_cases if plan else None,
         )
 
-    def _handle_new_user(self, state: ConversationState, text: str) -> AgentReply:
+    def _handle_new_user(self, state: ConversationState, text: str, *, progress_operation_id: str | None = None) -> AgentReply:
         if state.stage == ConversationStage.COMPLETE:
             return AgentReply(
                 session_id=state.session_id,
@@ -1061,10 +1113,17 @@ class InterviewerAgent:
             position=state.position,
             duties=state.duties,
             company_industry=state.company_industry,
+            progress_operation_id=progress_operation_id,
         )
         state.user = user
         state.stage = ConversationStage.COMPLETE
-        plan = assessment_service.ensure_assessment_session(user)
+        operation_progress_service.advance(
+            progress_operation_id,
+            4,
+            title="Подготавливаем следующий экран",
+            message="Пользователь создан. Проверяем оценочную сессию и готовим следующий шаг.",
+        )
+        plan = assessment_service.ensure_assessment_session(user, progress_operation_id=progress_operation_id)
         reply_text = "Готово. Новый пользователь создан и сохранен в базе данных. " + self._build_role_reply_suffix(role_match)
         if user.normalized_duties:
             reply_text += " Нормализованный список обязанностей также сохранен в профиле."
@@ -1091,8 +1150,8 @@ class InterviewerAgent:
             assessment_total_cases=plan.total_cases if plan else None,
         )
 
-    def start_case_interview(self, *, user: UserResponse) -> AssessmentStartResponse:
-        plan = assessment_service.ensure_assessment_session(user)
+    def start_case_interview(self, *, user: UserResponse, progress_operation_id: str | None = None) -> AssessmentStartResponse:
+        plan = assessment_service.ensure_assessment_session(user, progress_operation_id=progress_operation_id)
         if plan is None:
             raise ValueError("Для пользователя не осталось непройденных кейсов или роль еще не определена.")
 

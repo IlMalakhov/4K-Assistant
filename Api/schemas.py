@@ -88,6 +88,53 @@ class AssessmentReport(BaseModel):
     format_label: str
 
 
+class AdminMetricCard(BaseModel):
+    label: str
+    value: str
+    delta: str | None = None
+
+
+class AdminInsightCard(BaseModel):
+    title: str
+    description: str
+
+
+class AdminDashboard(BaseModel):
+    title: str
+    subtitle: str
+    metrics: list[AdminMetricCard]
+    competency_average: list[dict[str, str | int]]
+    mbti_distribution: list[dict[str, str | int]]
+    insights: list[AdminInsightCard]
+    activity_points: list[int]
+    activity_labels: list[str]
+    activity_axis_max: int
+    activity_period_key: str
+    activity_period_label: str
+
+
+class AdminDetailedReportItem(BaseModel):
+    session_id: int
+    user_id: int
+    full_name: str
+    phone: str | None = None
+    group_name: str
+    role_name: str
+    status: str
+    score_percent: int | None = None
+    mbti_type: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class AdminDetailedReportsResponse(BaseModel):
+    title: str
+    subtitle: str
+    total_items: int
+    summary_score_percent: float | None = None
+    items: list[AdminDetailedReportItem]
+
+
 class UserDashboard(BaseModel):
     greeting_name: str
     active_assessment: AssessmentCard
@@ -102,6 +149,8 @@ class CheckOrCreateUserResponse(BaseModel):
     requires_user_data: bool = False
     agent: AgentReply
     dashboard: UserDashboard | None = None
+    is_admin: bool = False
+    admin_dashboard: AdminDashboard | None = None
 
 
 class AgentMessageRequest(BaseModel):
@@ -211,8 +260,28 @@ class UserSessionRestoreResponse(BaseModel):
     authenticated: bool
     user: UserResponse | None = None
     dashboard: UserDashboard | None = None
+    is_admin: bool = False
+    admin_dashboard: AdminDashboard | None = None
 
 
 class UserSessionBootstrapResponse(BaseModel):
     user: UserResponse
     dashboard: UserDashboard
+    is_admin: bool = False
+    admin_dashboard: AdminDashboard | None = None
+
+
+class OperationProgressStep(BaseModel):
+    label: str
+    description: str
+    status: str
+
+
+class OperationProgressResponse(BaseModel):
+    operation_id: str
+    title: str
+    message: str
+    status: str
+    current_step_index: int
+    progress_percent: int
+    steps: list[OperationProgressStep]

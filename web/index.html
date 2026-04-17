@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>4K Ассистент</title>
-  <link rel="stylesheet" href="/web/app.css?v=20260414-0130">
+  <link rel="stylesheet" href="/web/app.css?v=20260417-0031">
 </head>
 <body>
   <div id="app-loader" class="app-loader hidden" aria-live="polite">
@@ -12,6 +12,16 @@
       <div class="app-loader-spinner"></div>
       <strong id="app-loader-title">Подождите, пожалуйста</strong>
       <p id="app-loader-text">Система обрабатывает ваш запрос.</p>
+      <div class="app-loader-progress">
+        <div class="app-loader-progress-head">
+          <span id="app-loader-progress-label">Подготовка</span>
+          <span id="app-loader-progress-value">0%</span>
+        </div>
+        <div class="app-loader-progress-track">
+          <div id="app-loader-progress-bar" class="app-loader-progress-bar"></div>
+        </div>
+      </div>
+      <div id="app-loader-steps" class="app-loader-steps"></div>
     </div>
   </div>
   <main class="shell">
@@ -104,14 +114,14 @@
         <div id="available-assessments" class="assessment-grid"></div>
       </section>
 
-      <section class="dashboard-section">
-        <div>
-          <p class="section-label">Ваши отчеты</p>
-          <h3 class="dashboard-section-title">Отчеты по ассессменту</h3>
-        </div>
-        <div id="reports-list" class="reports-list"></div>
+        <section class="dashboard-section">
+          <div>
+            <p class="section-label">Ваши отчеты</p>
+            <h3 class="dashboard-section-title">Отчеты по ассессменту</h3>
+          </div>
+          <div id="reports-list" class="reports-list"></div>
+        </section>
       </section>
-    </section>
 
     <section class="panel ai-welcome-panel hidden" id="ai-welcome-panel">
       <div class="dashboard-topbar">
@@ -154,12 +164,6 @@
               <p>AI-анализ типа личности для понимания паттернов поведения и наиболее подходящих форматов работы.</p>
               <div class="mini-card-footer"><span>15 минут</span><button type="button" class="mini-start-button">Начать</button></div>
             </article>
-            <article class="assessment-mini-card muted-card disabled-card">
-              <div class="mini-card-icon muted-icon">◍</div>
-              <h3>OCEAN Test</h3>
-              <p>Инструмент оценки личностного профиля для дополнительной аналитики. Будет доступен в следующих релизах.</p>
-              <div class="mini-card-footer"><span>Скоро появится</span><button type="button" class="mini-start-button disabled" disabled>Скоро</button></div>
-            </article>
           </div>
         </section>
 
@@ -173,6 +177,154 @@
             <strong>1.2M+</strong>
             <span>пройдено ассессментов</span>
           </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel admin-panel hidden" id="admin-panel">
+      <div class="dashboard-topbar">
+        <div class="brand dashboard-brand">4K Ассистент</div>
+        <div class="dashboard-topbar-actions">
+          <div class="topbar-user-chip">
+            <div class="topbar-user-copy">
+              <strong id="admin-user-name">Администратор системы</strong>
+              <span id="admin-user-role">Администратор</span>
+            </div>
+            <div id="admin-avatar" class="user-avatar">АД</div>
+          </div>
+          <button id="admin-logout-button" class="topbar-exit-button" type="button">
+            <span class="topbar-user-icon" aria-hidden="true">👤</span>
+            <span>Выйти</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="admin-shell">
+        <section class="admin-hero-card">
+          <div>
+            <p class="section-label accent-label">Административный раздел</p>
+            <h2 id="admin-title">Сводный отчет</h2>
+            <p id="admin-subtitle">Комплексный анализ компетенций и ключевых метрик платформы.</p>
+          </div>
+          <div class="admin-hero-actions">
+            <button id="admin-open-reports-button" type="button" class="primary-button compact-primary">Подробные отчеты</button>
+          </div>
+        </section>
+
+        <section class="admin-metrics-grid" id="admin-metrics-grid"></section>
+
+        <section class="admin-analytics-grid">
+          <article class="admin-analytics-card">
+            <div class="report-card-head">
+              <div>
+                <p class="section-label accent-label">Компетенции</p>
+                <h3>Средний % по компетенциям</h3>
+              </div>
+            </div>
+            <div id="admin-competency-chart" class="admin-competency-chart"></div>
+          </article>
+
+          <article class="admin-analytics-card">
+            <div class="report-card-head">
+              <div>
+                <p class="section-label accent-label">MBTI распределение</p>
+                <h3>Сводка по типам</h3>
+              </div>
+            </div>
+            <div id="admin-mbti-chart" class="admin-mbti-chart"></div>
+          </article>
+        </section>
+
+        <section class="admin-insights-card">
+          <div class="report-card-head">
+            <div>
+              <p class="section-label accent-label">Инсайты</p>
+              <h3>Ключевые выводы</h3>
+            </div>
+          </div>
+          <div id="admin-insights-grid" class="admin-insights-grid"></div>
+        </section>
+
+        <section class="admin-activity-card">
+          <div class="report-card-head admin-activity-head">
+            <div>
+              <p class="section-label accent-label">Динамика</p>
+              <h3 id="admin-activity-title">Количество завершенных ассессментов</h3>
+            </div>
+            <div class="admin-activity-controls">
+              <label class="admin-filter-field">
+                <span>Период</span>
+                <select id="admin-period-select">
+                  <option value="7d">7 дней</option>
+                  <option value="14d">14 дней</option>
+                  <option value="30d" selected>30 дней</option>
+                  <option value="90d">3 месяца</option>
+                  <option value="180d">6 месяцев</option>
+                  <option value="365d">12 месяцев</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="admin-activity-plot">
+            <div id="admin-activity-axis" class="admin-activity-axis"></div>
+            <div id="admin-activity-chart" class="admin-activity-chart"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel admin-reports-panel hidden" id="admin-reports-panel">
+      <div class="dashboard-topbar">
+        <div class="brand dashboard-brand">Подробные отчеты</div>
+        <div class="dashboard-topbar-actions">
+          <button id="admin-reports-back-button" class="ghost-button compact-ghost" type="button">Назад</button>
+        </div>
+      </div>
+
+      <div class="admin-shell admin-reports-shell">
+        <section class="admin-hero-card admin-reports-hero">
+          <div>
+            <h2 id="admin-reports-title">Отдельные отчеты</h2>
+            <p id="admin-reports-subtitle">Управление и анализ индивидуальных результатов тестирования персонала.</p>
+          </div>
+          <div class="admin-reports-actions">
+            <label class="admin-search-field">
+              <span>Поиск</span>
+              <input id="admin-reports-search" type="search" placeholder="Поиск по отчетам...">
+            </label>
+            <button id="admin-reports-pdf-button" type="button" class="ghost-button admin-export-button">Печать PDF</button>
+          </div>
+        </section>
+
+        <section class="admin-reports-table-card">
+          <div class="admin-reports-table-head">
+            <div class="admin-reports-columns" aria-hidden="true">
+              <span>Сотрудник / ID</span>
+              <span>Группа / роль</span>
+              <span>Статус</span>
+              <span>4K score</span>
+              <span>Тип MBTI</span>
+              <span>Дата</span>
+            </div>
+            <div id="admin-reports-found" class="admin-reports-found">Найдено: 0</div>
+          </div>
+          <div id="admin-reports-list" class="admin-reports-list"></div>
+          <div class="admin-reports-pagination">
+            <span id="admin-reports-page-summary" class="admin-reports-page-summary">Показано 0 из 0 отчетов</span>
+            <div class="admin-reports-pagination-controls">
+              <button id="admin-reports-prev-button" type="button" class="ghost-button compact-ghost">Назад</button>
+              <span id="admin-reports-page-indicator" class="admin-reports-page-indicator">1 / 1</span>
+              <button id="admin-reports-next-button" type="button" class="ghost-button compact-ghost">Вперед</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="admin-reports-summary-card">
+          <div>
+            <p class="section-label accent-label">Сводка</p>
+            <h3>Средний % по списку</h3>
+          </div>
+          <strong id="admin-reports-summary-score">0%</strong>
         </section>
       </div>
     </section>
@@ -318,19 +470,40 @@
 
         <section class="profile-history-card">
           <div class="profile-card-head">
+            <h3>Отчеты по ассессменту</h3>
+            <p>История прохождений и раскрывающиеся результаты вынесены на отдельную страницу отчетов.</p>
+          </div>
+          <div class="profile-report-redirect">
+            <button id="profile-open-reports-button" type="button" class="primary-button">Открыть отчеты</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel reports-panel hidden" id="reports-panel">
+      <div class="dashboard-topbar">
+        <div class="brand dashboard-brand">Отчеты по ассессменту</div>
+        <div class="dashboard-topbar-actions">
+          <button id="reports-back-button" class="ghost-button compact-ghost" type="button">Назад</button>
+        </div>
+      </div>
+
+      <div class="profile-shell reports-shell">
+        <section class="profile-history-card reports-history-card">
+          <div class="profile-card-head">
             <h3>История прохождений</h3>
-            <p>Выберите попытку, чтобы посмотреть результаты по всем 13 навыкам.</p>
+            <p>Выберите попытку, чтобы раскрыть результаты по всем 13 навыкам прямо внутри отчета.</p>
           </div>
           <div id="profile-history-list" class="profile-history-list"></div>
         </section>
 
-        <section class="profile-results-card">
+        <section class="profile-results-card reports-results-card">
           <div class="profile-card-head profile-results-head">
             <div>
               <h3>Результаты оценки по 13 навыкам</h3>
-              <p id="profile-results-caption">Выберите прохождение из списка выше.</p>
+              <p id="profile-results-caption">Откройте любой ассессмент в истории выше.</p>
             </div>
-            <div id="profile-results-badge" class="profile-results-badge">Нет данных</div>
+            <div id="profile-results-badge" class="profile-results-badge">Свернуто</div>
           </div>
           <div id="profile-skills-list" class="profile-skills-list"></div>
         </section>
@@ -481,6 +654,6 @@
     </section>
   </main>
 
-  <script src="/web/app.js?v=20260414-0130" defer></script>
+  <script src="/web/app.js?v=20260417-0031" defer></script>
 </body>
 </html>

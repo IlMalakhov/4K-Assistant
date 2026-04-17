@@ -7,6 +7,7 @@ from uuid import uuid4
 from Api.communication_agent import competency_assessment_agents
 from Api.database import get_connection
 from Api.deepseek_client import DeepSeekTurnResult, deepseek_client
+from Api.progress_service import operation_progress_service
 from Api.schemas import UserResponse
 
 
@@ -65,11 +66,17 @@ class AssessmentService:
             return 0
         return max(0, int((completed_at - started_at).total_seconds()))
 
-    def ensure_assessment_session(self, user: UserResponse) -> AssessmentSessionPlan | None:
+    def ensure_assessment_session(self, user: UserResponse, progress_operation_id: str | None = None) -> AssessmentSessionPlan | None:
         if not user.id or not user.role_id:
             return None
 
         with get_connection() as connection:
+            operation_progress_service.advance(
+                progress_operation_id,
+                0,
+                title="Проверяем профиль оценки",
+                message="Уточняем роль пользователя и состояние активной assessment-сессии.",
+            )
             existing = connection.execute(
                 """
                 SELECT id, session_code
@@ -89,9 +96,16 @@ class AssessmentService:
                     user=user,
                     session_id=existing["id"],
                     session_code=existing["session_code"],
+                    progress_operation_id=progress_operation_id,
                 )
                 if repaired_existing is not None:
                     repaired_session_id, repaired_session_code = repaired_existing
+                    operation_progress_service.advance(
+                        progress_operation_id,
+                        4,
+                        title="Подготавливаем интервью",
+                        message="Существующая assessment-сессия восстановлена и готова к продолжению.",
+                    )
                     return self._build_plan(connection, repaired_session_id, repaired_session_code)
 
             passed_case_rows = connection.execute(
@@ -120,6 +134,12 @@ class AssessmentService:
             if not required_skill_ids:
                 return None
 
+            operation_progress_service.advance(
+                progress_operation_id,
+                1,
+                title="Подбираем релевантные кейсы",
+                message="Подбираем кейсы по обязательным навыкам роли и истории пользователя.",
+            )
             candidate_rows = self._load_candidate_case_rows(
                 connection=connection,
                 role_id=user.role_id,
@@ -188,6 +208,12 @@ class AssessmentService:
             ).fetchone() if user.active_profile_id else None
             user_profile = dict(profile_row) if profile_row else None
 
+            operation_progress_service.advance(
+                progress_operation_id,
+                2,
+                title="Персонализируем материалы",
+                message="Готовим персонализированный контекст и задания по выбранным кейсам.",
+            )
             for index, case_row in enumerate(selected_cases, start=1):
                 session_case = connection.execute(
                     """
@@ -270,6 +296,7 @@ class AssessmentService:
                     role_name=role_name,
                     user_profile=user_profile,
                     skill_names=[name for name in case_row["skill_names"] if name],
+                    progress_operation_id=progress_operation_id,
                 )
                 connection.execute(
                     """
@@ -301,6 +328,12 @@ class AssessmentService:
                 (session_id,),
             )
             connection.commit()
+            operation_progress_service.advance(
+                progress_operation_id,
+                4,
+                title="Подготавливаем интервью",
+                message="Оценочная сессия создана. Первый кейс готов к показу пользователю.",
+            )
             return self._build_plan(connection, session_id, session_code)
 
     def _load_candidate_case_rows(self, *, connection, role_id: int, required_skill_ids: list[int], excluded_case_ids: list[int]):
@@ -344,6 +377,7 @@ class AssessmentService:
         user: UserResponse,
         session_id: int,
         session_code: str,
+        progress_operation_id: str | None = None,
     ) -> tuple[int, str] | None:
         case_rows = connection.execute(
             """
@@ -419,6 +453,12 @@ class AssessmentService:
         for row in open_case_rows:
             if row["has_prompt"]:
                 continue
+            operation_progress_service.advance(
+                progress_operation_id,
+                3,
+                title="Генерируем промты интервью",
+                message="Восстанавливаем недостающие системные промты для открытых кейсов.",
+            )
             skill_rows = connection.execute(
                 """
                 SELECT s.skill_name
@@ -438,6 +478,7 @@ class AssessmentService:
                 role_name=role_name,
                 user_profile=user_profile,
                 skill_names=[skill_row["skill_name"] for skill_row in skill_rows if skill_row["skill_name"]],
+                progress_operation_id=progress_operation_id,
             )
 
         repaired_plan = self._build_plan(connection, session_id, session_code)
@@ -500,6 +541,7 @@ class AssessmentService:
         role_name: str | None,
         user_profile: dict | None,
         skill_names: list[str],
+        progress_operation_id: str | None = None,
     ) -> None:
         planned_total_duration_min = case_row["planned_duration_minutes"] or case_row["estimated_minutes"]
         personalization_map, personalized_context, personalized_task = deepseek_client.build_personalized_case_materials(
@@ -516,6 +558,12 @@ class AssessmentService:
             personalization_variables=case_row["personalization_variables"],
         )
 
+        operation_progress_service.advance(
+            progress_operation_id,
+            3,
+            title="Генерируем промты интервью",
+            message="Создаем персонализированные системные промты для кейсового интервью.",
+        )
         prompt_text = deepseek_client.generate_case_prompt(
             full_name=user.full_name,
             position=user.raw_position or user.job_description,

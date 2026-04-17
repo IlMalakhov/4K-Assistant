@@ -4,6 +4,12 @@ const state = {
   pendingAgentMessage: null,
   pendingUser: null,
   dashboard: null,
+  isAdmin: false,
+  adminDashboard: null,
+  adminReports: null,
+  adminReportsSearch: '',
+  adminReportsPage: 1,
+  adminPeriodKey: '30d',
   assessmentSessionCode: null,
   assessmentCaseNumber: 0,
   assessmentTotalCases: 0,
@@ -65,6 +71,67 @@ const processingPhases = [
   'Формируем итоговый профиль и подготавливаем результаты для интерфейса.',
 ];
 
+const loaderFlows = {
+  lookupUser: [
+    {
+      label: 'Ищем профиль пользователя',
+      description: 'Проверяем, есть ли пользователь в базе данных по номеру телефона.',
+    },
+    {
+      label: 'Готовим сценарий входа',
+      description: 'Определяем, нужно ли создать нового пользователя или актуализировать текущий профиль.',
+    },
+    {
+      label: 'Открываем следующий шаг',
+      description: 'Подготавливаем экран с агентом и состояние пользовательской сессии.',
+    },
+  ],
+  createOrUpdateProfile: [
+    {
+      label: 'Сохраняем данные пользователя',
+      description: 'Фиксируем ФИО, должность, обязанности и сферу деятельности компании.',
+    },
+    {
+      label: 'Очищаем и нормализуем данные',
+      description: 'Приводим текст обязанностей и сферы деятельности к структурированному виду.',
+    },
+    {
+      label: 'Определяем роль пользователя',
+      description: 'Сопоставляем профиль с ролевыми описаниями и выбираем подходящую роль.',
+    },
+    {
+      label: 'Формируем расширенный профиль',
+      description: 'Собираем рабочий контекст пользователя для персонализации кейсов.',
+    },
+    {
+      label: 'Подготавливаем приветственный сценарий',
+      description: 'Обновляем состояние системы и открываем следующий экран.',
+    },
+  ],
+  startAssessment: [
+    {
+      label: 'Проверяем профиль оценки',
+      description: 'Уточняем активную роль и текущую assessment-сессию пользователя.',
+    },
+    {
+      label: 'Подбираем релевантные кейсы',
+      description: 'Выбираем набор кейсов, покрывающий нужные навыки без лишних повторов.',
+    },
+    {
+      label: 'Персонализируем материалы',
+      description: 'Подставляем рабочий контекст пользователя в шаблоны кейсов.',
+    },
+    {
+      label: 'Генерируем системные промты',
+      description: 'Создаем промты для ведения интервью и записываем их в сессию.',
+    },
+    {
+      label: 'Подготавливаем интервью',
+      description: 'Формируем первый кейс и открываем диалог для ответа пользователя.',
+    },
+  ],
+};
+
 const levelPercentMap = {
   'L1': 45,
   'L2': 70,
@@ -116,10 +183,13 @@ const onboardingSteps = [
 const authPanel = document.getElementById('auth-panel');
 const onboardingPanel = document.getElementById('onboarding-panel');
 const dashboardPanel = document.getElementById('dashboard-panel');
+const adminPanel = document.getElementById('admin-panel');
+const adminReportsPanel = document.getElementById('admin-reports-panel');
 const aiWelcomePanel = document.getElementById('ai-welcome-panel');
 const prechatPanel = document.getElementById('prechat-panel');
 const interviewPanel = document.getElementById('interview-panel');
 const profilePanel = document.getElementById('profile-panel');
+const reportsPanel = document.getElementById('reports-panel');
 const processingPanel = document.getElementById('processing-panel');
 const reportPanel = document.getElementById('report-panel');
 const chatPanel = document.getElementById('chat-panel');
@@ -154,6 +224,34 @@ const assessmentActionButton = document.getElementById('assessment-action-button
 const availableAssessments = document.getElementById('available-assessments');
 const reportsList = document.getElementById('reports-list');
 const dashboardRestartButton = document.getElementById('dashboard-restart-button');
+const adminUserName = document.getElementById('admin-user-name');
+const adminUserRole = document.getElementById('admin-user-role');
+const adminAvatar = document.getElementById('admin-avatar');
+const adminLogoutButton = document.getElementById('admin-logout-button');
+const adminTitle = document.getElementById('admin-title');
+const adminSubtitle = document.getElementById('admin-subtitle');
+const adminOpenReportsButton = document.getElementById('admin-open-reports-button');
+const adminMetricsGrid = document.getElementById('admin-metrics-grid');
+const adminCompetencyChart = document.getElementById('admin-competency-chart');
+const adminMbtiChart = document.getElementById('admin-mbti-chart');
+const adminInsightsGrid = document.getElementById('admin-insights-grid');
+const adminActivityTitle = document.getElementById('admin-activity-title');
+const adminPeriodSelect = document.getElementById('admin-period-select');
+const adminActivityAxis = document.getElementById('admin-activity-axis');
+const adminActivityChart = document.getElementById('admin-activity-chart');
+const adminReportsBackButton = document.getElementById('admin-reports-back-button');
+const adminReportsTitle = document.getElementById('admin-reports-title');
+const adminReportsSubtitle = document.getElementById('admin-reports-subtitle');
+const adminReportsSearch = document.getElementById('admin-reports-search');
+const adminReportsPdfButton = document.getElementById('admin-reports-pdf-button');
+const adminReportsFound = document.getElementById('admin-reports-found');
+const adminReportsList = document.getElementById('admin-reports-list');
+const adminReportsSummaryScore = document.getElementById('admin-reports-summary-score');
+const adminReportsPageSummary = document.getElementById('admin-reports-page-summary');
+const adminReportsPageIndicator = document.getElementById('admin-reports-page-indicator');
+const adminReportsPrevButton = document.getElementById('admin-reports-prev-button');
+const adminReportsNextButton = document.getElementById('admin-reports-next-button');
+const ADMIN_REPORTS_PAGE_SIZE = 10;
 const welcomeProfileButton = document.getElementById('welcome-profile-button');
 const startFirstAssessmentButton = document.getElementById('start-first-assessment');
 const libraryStartButton = document.getElementById('library-start-button');
@@ -180,6 +278,10 @@ const interviewRouteLabel = document.getElementById('interview-route-label');
 const appLoader = document.getElementById('app-loader');
 const appLoaderTitle = document.getElementById('app-loader-title');
 const appLoaderText = document.getElementById('app-loader-text');
+const appLoaderProgressLabel = document.getElementById('app-loader-progress-label');
+const appLoaderProgressValue = document.getElementById('app-loader-progress-value');
+const appLoaderProgressBar = document.getElementById('app-loader-progress-bar');
+const appLoaderSteps = document.getElementById('app-loader-steps');
 const processingBackButton = document.getElementById('processing-back-button');
 const processingTotalProgress = document.getElementById('processing-total-progress');
 const processingTotalProgressBar = document.getElementById('processing-total-progress-bar');
@@ -189,6 +291,8 @@ const processingPhaseLabel = document.getElementById('processing-phase-label');
 const reportHomeButton = document.getElementById('report-home-button');
 const reportDownloadButton = document.getElementById('report-download-button');
 const profileBackButton = document.getElementById('profile-back-button');
+const profileOpenReportsButton = document.getElementById('profile-open-reports-button');
+const reportsBackButton = document.getElementById('reports-back-button');
 const profileAvatar = document.getElementById('profile-avatar');
 const profileName = document.getElementById('profile-name');
 const profileRole = document.getElementById('profile-role');
@@ -221,12 +325,6 @@ const staticAssessments = [
     description: 'Типология личности Майерс-Бриггс для понимания командной динамики.',
     duration: '20 минут',
     tone: 'warm',
-  },
-  {
-    title: 'Leadership Style',
-    description: 'Определение вашего стиля управления и потенциала роста.',
-    duration: '30 минут',
-    tone: 'mint',
   },
 ];
 
@@ -272,19 +370,157 @@ const showError = (element, message) => {
   element.textContent = message || '';
 };
 
-const showLoader = (title, text) => {
+let loaderFlowTimerId = null;
+let loaderFlowSteps = [];
+let loaderFlowStepIndex = 0;
+let loaderProgressPollId = null;
+let loaderProgressValueOverride = null;
+
+const stopLoaderProgressPolling = () => {
+  if (loaderProgressPollId) {
+    window.clearInterval(loaderProgressPollId);
+    loaderProgressPollId = null;
+  }
+};
+
+const clearLoaderFlowTimer = () => {
+  if (loaderFlowTimerId) {
+    window.clearInterval(loaderFlowTimerId);
+    loaderFlowTimerId = null;
+  }
+};
+
+const renderLoaderFlow = () => {
+  const totalSteps = loaderFlowSteps.length || 1;
+  const activeIndex = Math.min(loaderFlowStepIndex, totalSteps - 1);
+  const activeStep = loaderFlowSteps[activeIndex] || null;
+  const progressValue = loaderProgressValueOverride == null
+    ? Math.round(((activeIndex + 1) / totalSteps) * 100)
+    : loaderProgressValueOverride;
+
+  appLoaderProgressLabel.textContent = activeStep?.label || 'Подготовка';
+  appLoaderProgressValue.textContent = progressValue + '%';
+  appLoaderProgressBar.style.width = progressValue + '%';
+  appLoaderSteps.innerHTML = '';
+
+  loaderFlowSteps.forEach((step, index) => {
+    const item = document.createElement('div');
+    let statusClass = 'pending';
+    let badgeLabel = String(index + 1);
+    if (index < activeIndex) {
+      statusClass = 'done';
+      badgeLabel = '✓';
+    } else if (index === activeIndex) {
+      statusClass = 'active';
+      badgeLabel = '•';
+    }
+    item.className = 'app-loader-step ' + statusClass;
+    item.innerHTML =
+      '<div class="app-loader-step-badge">' + badgeLabel + '</div>' +
+      '<div class="app-loader-step-copy">' +
+      '<strong>' + step.label + '</strong>' +
+      '<span>' + step.description + '</span>' +
+      '</div>';
+    appLoaderSteps.appendChild(item);
+  });
+};
+
+const startLoaderFlow = (steps) => {
+  clearLoaderFlowTimer();
+  stopLoaderProgressPolling();
+  loaderFlowSteps = Array.isArray(steps) && steps.length
+    ? steps
+    : [{ label: 'Подготовка', description: 'Система обрабатывает ваш запрос.' }];
+  loaderFlowStepIndex = 0;
+  loaderProgressValueOverride = null;
+  renderLoaderFlow();
+
+  if (loaderFlowSteps.length <= 1) {
+    return;
+  }
+
+  loaderFlowTimerId = window.setInterval(() => {
+    if (loaderFlowStepIndex >= loaderFlowSteps.length - 1) {
+      clearLoaderFlowTimer();
+      return;
+    }
+    loaderFlowStepIndex += 1;
+    renderLoaderFlow();
+  }, 850);
+};
+
+const applyLoaderProgressSnapshot = (snapshot) => {
+  if (!snapshot || !Array.isArray(snapshot.steps) || !snapshot.steps.length) {
+    return;
+  }
+  appLoaderTitle.textContent = snapshot.title || appLoaderTitle.textContent;
+  appLoaderText.textContent = snapshot.message || appLoaderText.textContent;
+  loaderFlowSteps = snapshot.steps;
+  loaderFlowStepIndex = Number(snapshot.current_step_index || 0);
+  loaderProgressValueOverride = Number(snapshot.progress_percent || 0);
+  clearLoaderFlowTimer();
+  renderLoaderFlow();
+};
+
+const startLoaderProgressPolling = (operationId) => {
+  stopLoaderProgressPolling();
+  if (!operationId) {
+    return;
+  }
+  const poll = async () => {
+    try {
+      const response = await fetch('/users/operations/' + operationId, {
+        credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        return;
+      }
+      const snapshot = await response.json();
+      applyLoaderProgressSnapshot(snapshot);
+      if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+        stopLoaderProgressPolling();
+      }
+    } catch (_error) {
+      // ignore intermittent polling errors while the main request is still running
+    }
+  };
+  void poll();
+  loaderProgressPollId = window.setInterval(() => {
+    void poll();
+  }, 350);
+};
+
+const showLoader = (title, text, steps = null) => {
   appLoaderTitle.textContent = title;
   appLoaderText.textContent = text;
+  startLoaderFlow(steps);
   appLoader.classList.remove('hidden');
 };
 
 const hideLoader = () => {
+  clearLoaderFlowTimer();
+  stopLoaderProgressPolling();
+  loaderFlowSteps = [];
+  loaderFlowStepIndex = 0;
+  loaderProgressValueOverride = null;
   appLoader.classList.add('hidden');
 };
+
+const createOperationId = () => (
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'op-' + Date.now() + '-' + Math.random().toString(16).slice(2)
+);
 
 const STORAGE_KEYS = {
   pendingUser: 'agent4k.pendingUser',
   dashboard: 'agent4k.dashboard',
+  isAdmin: 'agent4k.isAdmin',
+  adminDashboard: 'agent4k.adminDashboard',
+  adminReports: 'agent4k.adminReports',
+  adminReportsSearch: 'agent4k.adminReportsSearch',
+  adminReportsPage: 'agent4k.adminReportsPage',
+  adminPeriodKey: 'agent4k.adminPeriodKey',
   assessmentSessionId: 'agent4k.assessmentSessionId',
   assessmentSessionCode: 'agent4k.assessmentSessionCode',
   assessmentTotalCases: 'agent4k.assessmentTotalCases',
@@ -342,6 +578,18 @@ const persistAssessmentContext = () => {
   if (state.dashboard) {
     safeStorage.setItem(STORAGE_KEYS.dashboard, JSON.stringify(state.dashboard));
   }
+  safeStorage.setItem(STORAGE_KEYS.isAdmin, state.isAdmin ? '1' : '0');
+  if (state.adminDashboard) {
+    safeStorage.setItem(STORAGE_KEYS.adminDashboard, JSON.stringify(state.adminDashboard));
+  }
+  if (state.adminReports) {
+    safeStorage.setItem(STORAGE_KEYS.adminReports, JSON.stringify(state.adminReports));
+  }
+  if (state.adminPeriodKey) {
+    safeStorage.setItem(STORAGE_KEYS.adminPeriodKey, state.adminPeriodKey);
+  }
+  safeStorage.setItem(STORAGE_KEYS.adminReportsSearch, state.adminReportsSearch || '');
+  safeStorage.setItem(STORAGE_KEYS.adminReportsPage, String(state.adminReportsPage || 1));
   if (state.assessmentSessionId) {
     safeStorage.setItem(STORAGE_KEYS.assessmentSessionId, String(state.assessmentSessionId));
   }
@@ -361,6 +609,12 @@ const restoreAssessmentContext = () => {
     const storedUser = safeStorage.getItem(STORAGE_KEYS.pendingUser);
     const storedDashboard = safeStorage.getItem(STORAGE_KEYS.dashboard);
     const storedSessionId = safeStorage.getItem(STORAGE_KEYS.assessmentSessionId);
+    const storedIsAdmin = safeStorage.getItem(STORAGE_KEYS.isAdmin);
+    const storedAdminDashboard = safeStorage.getItem(STORAGE_KEYS.adminDashboard);
+    const storedAdminReports = safeStorage.getItem(STORAGE_KEYS.adminReports);
+    const storedAdminPeriodKey = safeStorage.getItem(STORAGE_KEYS.adminPeriodKey);
+    const storedAdminReportsSearch = safeStorage.getItem(STORAGE_KEYS.adminReportsSearch);
+    const storedAdminReportsPage = safeStorage.getItem(STORAGE_KEYS.adminReportsPage);
     const storedSessionCode = safeStorage.getItem(STORAGE_KEYS.assessmentSessionCode);
     const storedTotalCases = safeStorage.getItem(STORAGE_KEYS.assessmentTotalCases);
     const storedConversationSessionId = safeStorage.getItem(STORAGE_KEYS.sessionId);
@@ -374,6 +628,24 @@ const restoreAssessmentContext = () => {
     }
     if (storedDashboard) {
       state.dashboard = JSON.parse(storedDashboard);
+    }
+    if (storedIsAdmin) {
+      state.isAdmin = storedIsAdmin === '1';
+    }
+    if (storedAdminDashboard) {
+      state.adminDashboard = JSON.parse(storedAdminDashboard);
+    }
+    if (storedAdminReports) {
+      state.adminReports = JSON.parse(storedAdminReports);
+    }
+    if (storedAdminPeriodKey) {
+      state.adminPeriodKey = storedAdminPeriodKey;
+    }
+    if (storedAdminReportsSearch) {
+      state.adminReportsSearch = storedAdminReportsSearch;
+    }
+    if (storedAdminReportsPage) {
+      state.adminReportsPage = Number(storedAdminReportsPage) || 1;
     }
     if (storedSessionId) {
       state.assessmentSessionId = Number(storedSessionId);
@@ -450,8 +722,10 @@ const restoreServerSession = async () => {
   }
   state.pendingUser = data.user;
   state.dashboard = data.dashboard || null;
+  state.isAdmin = Boolean(data.is_admin);
+  state.adminDashboard = data.admin_dashboard || null;
   if (!state.currentScreen || state.currentScreen === 'auth') {
-    state.currentScreen = state.dashboard ? 'dashboard' : 'chat';
+    state.currentScreen = state.isAdmin ? 'admin' : state.dashboard ? 'dashboard' : 'chat';
   }
   persistAssessmentContext();
   return true;
@@ -468,8 +742,10 @@ const restoreLocalUserSession = async () => {
   const data = await readApiResponse(response, 'Не удалось восстановить локальную пользовательскую сессию.');
   state.pendingUser = data.user;
   state.dashboard = data.dashboard;
+  state.isAdmin = Boolean(data.is_admin);
+  state.adminDashboard = data.admin_dashboard || null;
   if (!state.currentScreen || state.currentScreen === 'auth') {
-    state.currentScreen = 'dashboard';
+    state.currentScreen = state.isAdmin ? 'admin' : 'dashboard';
   }
   persistAssessmentContext();
   return true;
@@ -574,10 +850,13 @@ const hideAllPanels = () => {
   authPanel.classList.add('hidden');
   onboardingPanel.classList.add('hidden');
   dashboardPanel.classList.add('hidden');
+  adminPanel.classList.add('hidden');
+  adminReportsPanel.classList.add('hidden');
   aiWelcomePanel.classList.add('hidden');
   prechatPanel.classList.add('hidden');
   interviewPanel.classList.add('hidden');
   profilePanel.classList.add('hidden');
+  reportsPanel.classList.add('hidden');
   processingPanel.classList.add('hidden');
   reportPanel.classList.add('hidden');
   chatPanel.classList.add('hidden');
@@ -604,6 +883,11 @@ const resetChat = () => {
   state.pendingAgentMessage = null;
   state.pendingUser = null;
   state.dashboard = null;
+  state.isAdmin = false;
+  state.adminDashboard = null;
+  state.adminReports = null;
+  state.adminReportsSearch = '';
+  state.adminReportsPage = 1;
   state.assessmentSessionCode = null;
   state.assessmentCaseNumber = 0;
   state.assessmentTotalCases = 0;
@@ -693,6 +977,271 @@ const openChat = () => {
   chatInput.focus();
 };
 
+const renderAdminDashboard = () => {
+  const adminDashboard = state.adminDashboard;
+  const user = state.pendingUser;
+  if (!adminDashboard || !user) {
+    return;
+  }
+  const adminPosition = sanitizeDisplayRole(user.job_description || '') || 'Администратор';
+
+  adminUserName.textContent = user.full_name || 'Администратор системы';
+  adminUserRole.textContent = adminPosition;
+  adminAvatar.textContent = buildInitials(user.full_name || 'Администратор системы');
+  adminTitle.textContent = adminDashboard.title || 'Сводный отчет';
+  adminSubtitle.textContent = adminDashboard.subtitle || 'Комплексный анализ платформы.';
+  adminActivityTitle.innerHTML =
+    'Количество завершенных ассессментов за период:' +
+    '<span class="admin-activity-title-period">' + (adminDashboard.activity_period_label || 'Последние 30 дней') + '</span>';
+  if (adminPeriodSelect) {
+    adminPeriodSelect.value = adminDashboard.activity_period_key || state.adminPeriodKey || '30d';
+  }
+
+  adminMetricsGrid.innerHTML = '';
+  (adminDashboard.metrics || []).forEach((metric) => {
+    const card = document.createElement('article');
+    card.className = 'admin-metric-card';
+    card.innerHTML =
+      '<span>' + metric.label + '</span>' +
+      '<strong>' + metric.value + '</strong>' +
+      '<small>' + (metric.delta || '') + '</small>';
+    adminMetricsGrid.appendChild(card);
+  });
+
+  adminCompetencyChart.innerHTML = '';
+  (adminDashboard.competency_average || []).forEach((item) => {
+    const column = document.createElement('div');
+    column.className = 'admin-competency-column';
+    column.innerHTML =
+      '<div class="admin-competency-value">' + item.value + '%</div>' +
+      '<div class="admin-competency-bar"><span style="height:' + item.value + '%"></span></div>' +
+      '<strong>' + item.name + '</strong>';
+    adminCompetencyChart.appendChild(column);
+  });
+
+  adminMbtiChart.innerHTML = '';
+  (adminDashboard.mbti_distribution || []).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'admin-mbti-row';
+    row.innerHTML =
+      '<span>' + item.name + '</span>' +
+      '<div class="admin-mbti-track"><span style="width:' + item.value + '%"></span></div>' +
+      '<strong>' + item.value + '%</strong>';
+    adminMbtiChart.appendChild(row);
+  });
+
+  adminInsightsGrid.innerHTML = '';
+  (adminDashboard.insights || []).forEach((item) => {
+    const card = document.createElement('article');
+    card.className = 'admin-insight-card';
+    card.innerHTML = '<strong>' + item.title + '</strong><p>' + item.description + '</p>';
+    adminInsightsGrid.appendChild(card);
+  });
+
+  adminActivityAxis.innerHTML = '';
+  adminActivityChart.innerHTML = '';
+  const activityPoints = Array.isArray(adminDashboard.activity_points) && adminDashboard.activity_points.length
+    ? adminDashboard.activity_points
+    : [0, 0, 0, 0, 0, 0, 0];
+  const activityLabels = Array.isArray(adminDashboard.activity_labels) && adminDashboard.activity_labels.length
+    ? adminDashboard.activity_labels
+    : activityPoints.map((_, index) => 'P' + (index + 1));
+  const maxPoint = Math.max(Number(adminDashboard.activity_axis_max || 0), ...activityPoints, 1);
+  const axisTicks = [maxPoint, Math.round(maxPoint * 0.66), Math.round(maxPoint * 0.33), 0]
+    .filter((value, index, array) => array.indexOf(value) === index);
+  axisTicks.forEach((value) => {
+    const tick = document.createElement('div');
+    tick.className = 'admin-activity-tick';
+    tick.innerHTML = '<span>' + value + '</span><div></div>';
+    adminActivityAxis.appendChild(tick);
+  });
+  activityPoints.forEach((value, index) => {
+    const bar = document.createElement('div');
+    bar.className = 'admin-activity-bar';
+    const height = Math.max(18, Math.round((value / maxPoint) * 220));
+    bar.innerHTML =
+      '<span class="admin-activity-value">' + value + '</span>' +
+      '<div class="admin-activity-bar-fill" style="height:' + height + 'px"></div>' +
+      '<small>' + (activityLabels[index] || ('P' + (index + 1))) + '</small>';
+    adminActivityChart.appendChild(bar);
+  });
+};
+
+const loadAdminDashboard = async (periodKey = state.adminPeriodKey || '30d') => {
+  const response = await fetch('/users/admin/dashboard?period=' + encodeURIComponent(periodKey), {
+    credentials: 'same-origin',
+  });
+  const data = await readApiResponse(response, 'Не удалось загрузить административный дашборд.');
+  state.adminDashboard = data;
+  state.adminPeriodKey = data.activity_period_key || periodKey;
+  persistAssessmentContext();
+};
+
+const formatAdminReportDate = (item) => {
+  const value = item.finished_at || item.started_at;
+  if (!value) {
+    return 'Без даты';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Без даты';
+  }
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
+
+const getFilteredAdminReports = () => {
+  const items = Array.isArray(state.adminReports?.items) ? state.adminReports.items : [];
+  const query = String(state.adminReportsSearch || '').trim().toLowerCase();
+  if (!query) {
+    return items;
+  }
+  return items.filter((item) => {
+    const haystack = [
+      item.full_name,
+      item.group_name,
+      item.role_name,
+      item.status,
+      item.phone,
+      String(item.user_id),
+      String(item.session_id),
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+};
+
+const renderAdminReports = () => {
+  const reports = state.adminReports;
+  if (!reports) {
+    return;
+  }
+
+  adminReportsTitle.textContent = reports.title || 'Отдельные отчеты';
+  adminReportsSubtitle.textContent = reports.subtitle || 'Управление и анализ индивидуальных результатов тестирования персонала.';
+  if (adminReportsSearch) {
+    adminReportsSearch.value = state.adminReportsSearch || '';
+  }
+
+  const filteredItems = getFilteredAdminReports();
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ADMIN_REPORTS_PAGE_SIZE));
+  if (state.adminReportsPage > totalPages) {
+    state.adminReportsPage = totalPages;
+  }
+  if (state.adminReportsPage < 1) {
+    state.adminReportsPage = 1;
+  }
+  const pageStart = (state.adminReportsPage - 1) * ADMIN_REPORTS_PAGE_SIZE;
+  const pageItems = filteredItems.slice(pageStart, pageStart + ADMIN_REPORTS_PAGE_SIZE);
+  adminReportsFound.textContent = 'Найдено: ' + filteredItems.length;
+
+  const scoreValues = filteredItems
+    .map((item) => item.score_percent)
+    .filter((value) => typeof value === 'number');
+  adminReportsSummaryScore.textContent = scoreValues.length
+    ? (Math.round((scoreValues.reduce((sum, value) => sum + value, 0) / scoreValues.length) * 10) / 10) + '%'
+    : '—';
+
+  adminReportsList.innerHTML = '';
+  if (!filteredItems.length) {
+    adminReportsList.innerHTML = '<p class="report-empty-state">По текущему фильтру отчеты не найдены.</p>';
+    if (adminReportsPageSummary) {
+      adminReportsPageSummary.textContent = 'Показано 0 из 0 отчетов';
+    }
+    if (adminReportsPageIndicator) {
+      adminReportsPageIndicator.textContent = '0 / 0';
+    }
+    if (adminReportsPrevButton) {
+      adminReportsPrevButton.disabled = true;
+    }
+    if (adminReportsNextButton) {
+      adminReportsNextButton.disabled = true;
+    }
+    return;
+  }
+
+  pageItems.forEach((item) => {
+    const row = document.createElement('article');
+    row.className = 'admin-report-row';
+    const scorePercent = typeof item.score_percent === 'number' ? item.score_percent : 0;
+    const scoreLabel = typeof item.score_percent === 'number' ? item.score_percent + '%' : '—';
+    row.innerHTML =
+      '<div class="admin-report-cell admin-report-user">' +
+        '<div class="admin-report-avatar">' + buildInitials(item.full_name || 'Сотрудник') + '</div>' +
+        '<div class="admin-report-copy">' +
+          '<strong>' + item.full_name + '</strong>' +
+          '<span>ID ' + item.user_id + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="admin-report-cell admin-report-group">' +
+        '<strong>' + (item.group_name || 'Не указана') + '</strong>' +
+        '<span>' + (item.role_name || 'Не указана') + '</span>' +
+      '</div>' +
+      '<div class="admin-report-cell admin-report-status">' +
+        '<span class="admin-status-pill ' + (item.status === 'Завершено' ? 'done' : item.status === 'В процессе' ? 'active' : 'draft') + '">' + item.status + '</span>' +
+      '</div>' +
+      '<div class="admin-report-cell admin-report-score">' +
+        '<strong>' + scoreLabel + '</strong>' +
+        '<div class="admin-report-score-track"><span style="width:' + scorePercent + '%"></span></div>' +
+      '</div>' +
+      '<div class="admin-report-cell admin-report-mbti">' + (item.mbti_type || 'Нет данных') + '</div>' +
+      '<div class="admin-report-cell admin-report-date">' + formatAdminReportDate(item) + '</div>';
+    adminReportsList.appendChild(row);
+  });
+
+  if (adminReportsPageSummary) {
+    adminReportsPageSummary.textContent =
+      'Показано ' + (pageStart + 1) + '–' + (pageStart + pageItems.length) + ' из ' + filteredItems.length + ' отчетов';
+  }
+  if (adminReportsPageIndicator) {
+    adminReportsPageIndicator.textContent = state.adminReportsPage + ' / ' + totalPages;
+  }
+  if (adminReportsPrevButton) {
+    adminReportsPrevButton.disabled = state.adminReportsPage <= 1;
+  }
+  if (adminReportsNextButton) {
+    adminReportsNextButton.disabled = state.adminReportsPage >= totalPages;
+  }
+};
+
+const loadAdminReports = async () => {
+  const response = await fetch('/users/admin/reports', {
+    credentials: 'same-origin',
+  });
+  const data = await readApiResponse(response, 'Не удалось загрузить подробные отчеты.');
+  state.adminReports = data;
+  state.adminReportsPage = 1;
+  persistAssessmentContext();
+};
+
+const openAdminDashboard = () => {
+  setCurrentScreen('admin');
+  persistAssessmentContext();
+  syncUrlState('admin');
+  hideAllPanels();
+  renderAdminDashboard();
+  adminPanel.classList.remove('hidden');
+};
+
+const openAdminReports = async () => {
+  setCurrentScreen('admin-reports');
+  persistAssessmentContext();
+  syncUrlState('admin-reports');
+  hideAllPanels();
+  adminReportsPanel.classList.remove('hidden');
+  adminReportsList.innerHTML = '<p class="report-empty-state">Загружаем подробные отчеты...</p>';
+  try {
+    if (!state.adminReports) {
+      await loadAdminReports();
+    }
+    renderAdminReports();
+  } catch (error) {
+    adminReportsList.innerHTML = '<p class="report-empty-state">' + error.message + '</p>';
+  }
+};
+
 const renderDashboard = () => {
   const dashboard = state.dashboard;
   if (!dashboard) {
@@ -744,20 +1293,27 @@ const renderDashboard = () => {
 
   reportsList.innerHTML = '';
   if (!dashboard.reports.length) {
-    reportsList.innerHTML =
-      '<article class="report-card">' +
+    const item = document.createElement('article');
+    item.className = 'report-card report-card-clickable';
+    item.innerHTML =
       '<div class="report-badge muted-report">0%</div>' +
-      '<div class="report-copy"><h3>4K Assessment</h3><p>Отчет появится после завершения ассессмента и фиксации результатов по кейсам.</p></div>' +
-      '<div class="report-actions"><button type="button" class="report-action-button muted">Черновик</button></div>' +
-      '</article>';
+      '<div class="report-copy"><h3>4K Assessment</h3><p>История отчетов открывается на отдельной странице. После завершения ассессмента внутри отчета будут доступны раскрывающиеся результаты по навыкам.</p></div>' +
+      '<div class="report-actions"><button type="button" class="report-action-button muted">Открыть</button></div>';
+    item.addEventListener('click', () => {
+      void openReports();
+    });
+    reportsList.appendChild(item);
   } else {
     dashboard.reports.forEach((report) => {
       const item = document.createElement('article');
-      item.className = 'report-card';
+      item.className = 'report-card report-card-clickable';
       item.innerHTML =
         '<div class="report-badge">' + report.badge + '</div>' +
         '<div class="report-copy"><h3>' + report.title + '</h3><p>' + report.summary + '</p></div>' +
-        '<div class="report-actions"><button type="button" class="report-action-button">' + report.format_label + '</button></div>';
+        '<div class="report-actions"><button type="button" class="report-action-button">Открыть</button></div>';
+      item.addEventListener('click', () => {
+        void openReports();
+      });
       reportsList.appendChild(item);
     });
   }
@@ -838,6 +1394,10 @@ const openAiWelcome = () => {
 };
 
 const openWelcomeScreen = () => {
+  if (state.isAdmin) {
+    openAdminDashboard();
+    return;
+  }
   if (state.dashboard) {
     openDashboard();
     return;
@@ -875,7 +1435,14 @@ const buildProfileSkillsMarkup = (skills) => {
     return '<p class="report-empty-state">По выбранной сессии еще нет результатов оценки навыков.</p>';
   }
 
-  return skills.map((skill) => {
+  const header =
+    '<div class="profile-skill-columns report-detail-columns" aria-hidden="true">' +
+    '<span class="report-detail-column-name">Навык</span>' +
+    '<span class="report-detail-column-level">Уровень</span>' +
+    '<span class="report-detail-column-progress">Прогресс</span>' +
+    '</div>';
+
+  const rows = skills.map((skill) => {
     const percent = getLevelPercent(skill.assessed_level_code);
     return (
       '<article class="profile-skill-row">' +
@@ -891,6 +1458,8 @@ const buildProfileSkillsMarkup = (skills) => {
       '</article>'
     );
   }).join('');
+
+  return header + rows;
 };
 
 const renderProfileSkills = () => {
@@ -913,17 +1482,22 @@ const renderProfileSkills = () => {
 const renderProfile = () => {
   const summary = state.profileSummary;
   const user = summary?.user || state.pendingUser;
+  const profilePosition = sanitizeDisplayRole(user?.job_description || '');
 
   profileAvatar.textContent = buildInitials(user?.full_name || 'Пользователь');
   profileName.textContent = user?.full_name || 'Пользователь';
-  profileRole.textContent = user?.job_description || 'Должность не указана';
+  profileRole.textContent = profilePosition || 'Должность не указана';
   profileTotalAssessments.textContent = String(summary?.total_assessments || 0);
   profileAverageScore.textContent = summary?.average_score_percent != null ? summary.average_score_percent + '%' : '0%';
   profileFullName.value = user?.full_name || '';
   profileEmail.value = user?.email || 'Не указан';
   profilePhone.value = user?.phone || 'Не указан';
-  profileJobDescription.value = user?.job_description || 'Не указана';
+  profileJobDescription.value = profilePosition || 'Не указана';
 
+};
+
+const renderReportsPage = () => {
+  const summary = state.profileSummary;
   profileHistoryList.innerHTML = '';
   if (!summary?.history?.length) {
     profileHistoryList.innerHTML = '<p class="report-empty-state">Пользователь еще не проходил оценку компетенций.</p>';
@@ -947,8 +1521,11 @@ const renderProfile = () => {
         '</button>' +
         '<div class="profile-history-panel' + (expanded ? ' expanded' : '') + '">' +
           '<div class="profile-history-panel-head">' +
-            '<span>Результат попытки</span>' +
-            '<strong>' + (item.overall_score_percent != null ? item.overall_score_percent + '%' : 'Нет данных') + '</strong>' +
+            '<div class="profile-history-panel-summary">' +
+              '<span>Результат попытки</span>' +
+              '<strong>' + (item.overall_score_percent != null ? item.overall_score_percent + '%' : 'Нет данных') + '</strong>' +
+            '</div>' +
+            '<button type="button" class="profile-history-pdf-button" data-session-id="' + item.session_id + '">Скачать PDF</button>' +
           '</div>' +
           '<div class="profile-history-panel-body">' +
             (expanded ? buildProfileSkillsMarkup(skills) : '') +
@@ -958,12 +1535,23 @@ const renderProfile = () => {
         if (expanded) {
           state.profileSelectedSessionId = null;
           state.profileSkillAssessments = [];
-          renderProfile();
+          renderReportsPage();
           return;
         }
         state.profileSelectedSessionId = item.session_id;
         void loadProfileSessionSkills(item.session_id);
       });
+      const pdfButton = card.querySelector('.profile-history-pdf-button');
+      if (pdfButton) {
+        pdfButton.addEventListener('click', (event) => {
+          event.stopPropagation();
+          if (!state.pendingUser?.id) {
+            return;
+          }
+          window.location.href =
+            '/users/' + state.pendingUser.id + '/assessment/' + item.session_id + '/report.pdf';
+        });
+      }
       profileHistoryList.appendChild(card);
     });
   }
@@ -977,7 +1565,7 @@ const renderProfile = () => {
     profileResultsBadge.textContent = 'Свернуто';
     profileResultsBadge.className = 'profile-results-badge';
   }
-  profileSkillsList.innerHTML = '<p class="report-empty-state">Результаты по навыкам теперь открываются прямо внутри выбранного ассессмента в истории прохождений.</p>';
+  profileSkillsList.innerHTML = '<p class="report-empty-state">Результаты по навыкам открываются внутри раскрытого ассессмента.</p>';
 };
 
 const loadProfileSummary = async () => {
@@ -999,7 +1587,7 @@ const loadProfileSessionSkills = async (sessionId) => {
   const data = await readApiResponse(response, 'Не удалось загрузить навыки по выбранной попытке.');
   state.profileSkillAssessments = data;
   state.profileSkillsBySession[sessionId] = data;
-  renderProfile();
+  renderReportsPage();
 };
 
 const openProfile = async () => {
@@ -1008,17 +1596,33 @@ const openProfile = async () => {
   syncUrlState('profile');
   hideAllPanels();
   profilePanel.classList.remove('hidden');
+  try {
+    await loadProfileSummary();
+    renderProfile();
+  } catch (error) {
+    profileRole.textContent = error.message;
+  }
+};
+
+const openReports = async () => {
+  setCurrentScreen('reports');
+  persistAssessmentContext();
+  syncUrlState('reports');
+  hideAllPanels();
+  reportsPanel.classList.remove('hidden');
   profileHistoryList.innerHTML = '<p class="report-empty-state">Загружаем историю прохождений...</p>';
   profileSkillsList.innerHTML = '';
 
   try {
-    await loadProfileSummary();
+    if (!state.profileSummary) {
+      await loadProfileSummary();
+    }
     if (state.profileSelectedSessionId) {
       await loadProfileSessionSkills(state.profileSelectedSessionId);
-    } else {
-      state.profileSkillAssessments = [];
-      renderProfile();
+      return;
     }
+    state.profileSkillAssessments = [];
+    renderReportsPage();
   } catch (error) {
     profileHistoryList.innerHTML = '<p class="report-empty-state">' + error.message + '</p>';
     profileSkillsList.innerHTML = '';
@@ -1145,7 +1749,7 @@ const renderReport = () => {
   reportSummaryText.textContent = 'Глубокий анализ оценок по четырем направлениям и детализация результатов по каждому навыку пользователя.';
   reportProfileAvatar.textContent = buildInitials(state.pendingUser ? state.pendingUser.full_name : 'Пользователь');
   reportProfileName.textContent = state.pendingUser?.full_name || 'Пользователь';
-  reportProfileRole.textContent = state.pendingUser?.job_description || 'Должность не указана';
+  reportProfileRole.textContent = sanitizeDisplayRole(state.pendingUser?.job_description || '') || 'Должность не указана';
 
   reportRecommendations.innerHTML = '';
   getReportRecommendations(summary).forEach((text) => {
@@ -1650,9 +2254,18 @@ const startAssessmentInterview = async () => {
   showError(interviewError, '');
 
   try {
-    showLoader('Генерируем кейсы', 'Система подбирает кейсы по навыкам и готовит персонализированные материалы для интервью.');
+    showLoader(
+      'Подготавливаем ассессмент',
+      'Система подбирает кейсы, персонализирует материалы и готовит интервью.',
+      loaderFlows.startAssessment,
+    );
+    const operationId = createOperationId();
+    startLoaderProgressPolling(operationId);
     const response = await fetch('/users/' + state.pendingUser.id + '/assessment/start', {
       method: 'POST',
+      headers: {
+        'X-Agent4K-Operation-Id': operationId,
+      },
     });
     const data = await readApiResponse(response, 'Не удалось запустить интервью по кейсам.');
 
@@ -1721,11 +2334,18 @@ phoneForm.addEventListener('submit', async (event) => {
   }
 
   try {
-    showLoader('Проверяем профиль', 'Система ищет пользователя по номеру телефона и подготавливает следующий шаг.');
+    showLoader(
+      'Проверяем профиль',
+      'Система ищет пользователя по номеру телефона и подготавливает следующий шаг.',
+      loaderFlows.lookupUser,
+    );
+    const operationId = createOperationId();
+    startLoaderProgressPolling(operationId);
     const response = await fetch('/users/check-or-create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Agent4K-Operation-Id': operationId,
       },
       body: JSON.stringify({ phone: rawPhone }),
     });
@@ -1735,7 +2355,15 @@ phoneForm.addEventListener('submit', async (event) => {
     state.pendingAgentMessage = data.agent.message;
     state.pendingUser = data.user || null;
     state.dashboard = data.dashboard || null;
+    state.isAdmin = Boolean(data.is_admin);
+    state.adminDashboard = data.admin_dashboard || null;
     state.isNewUserFlow = !data.exists;
+
+    if (data.is_admin) {
+      hideLoader();
+      openAdminDashboard();
+      return;
+    }
 
     if (data.exists) {
       hideLoader();
@@ -1781,13 +2409,26 @@ chatForm.addEventListener('submit', async (event) => {
   showError(chatError, '');
 
   try {
+    const operationId = createOperationId();
     if (state.isNewUserFlow) {
-      showLoader('Создаем профиль пользователя', 'Идет сохранение данных, определение роли и формирование стартового профиля пользователя.');
+      showLoader(
+        'Создаем профиль пользователя',
+        'Идет сохранение данных, очистка текста и формирование стартового профиля пользователя.',
+        loaderFlows.createOrUpdateProfile,
+      );
+    } else {
+      showLoader(
+        'Актуализируем профиль',
+        'Проверяем изменения, обновляем данные и подготавливаем следующий шаг.',
+        loaderFlows.createOrUpdateProfile,
+      );
     }
+    startLoaderProgressPolling(operationId);
     const response = await fetch('/users/agent/message', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Agent4K-Operation-Id': operationId,
       },
       body: JSON.stringify({
         session_id: state.sessionId,
@@ -1831,6 +2472,68 @@ restartButton.addEventListener('click', () => {
 dashboardRestartButton.addEventListener('click', () => {
   void logoutAndReturnToStart();
 });
+
+adminLogoutButton.addEventListener('click', () => {
+  void logoutAndReturnToStart();
+});
+
+if (adminOpenReportsButton) {
+  adminOpenReportsButton.addEventListener('click', () => {
+    void openAdminReports();
+  });
+}
+
+if (adminPeriodSelect) {
+  adminPeriodSelect.addEventListener('change', () => {
+    const nextPeriod = adminPeriodSelect.value || '30d';
+    void (async () => {
+      try {
+        state.adminPeriodKey = nextPeriod;
+        await loadAdminDashboard(nextPeriod);
+        renderAdminDashboard();
+      } catch (error) {
+        console.error('Failed to refresh admin dashboard', error);
+      }
+    })();
+  });
+}
+
+if (adminReportsBackButton) {
+  adminReportsBackButton.addEventListener('click', () => {
+    openAdminDashboard();
+  });
+}
+
+if (adminReportsSearch) {
+  adminReportsSearch.addEventListener('input', () => {
+    state.adminReportsSearch = adminReportsSearch.value || '';
+    state.adminReportsPage = 1;
+    persistAssessmentContext();
+    renderAdminReports();
+  });
+}
+
+if (adminReportsPrevButton) {
+  adminReportsPrevButton.addEventListener('click', () => {
+    state.adminReportsPage = Math.max(1, (state.adminReportsPage || 1) - 1);
+    persistAssessmentContext();
+    renderAdminReports();
+  });
+}
+
+if (adminReportsNextButton) {
+  adminReportsNextButton.addEventListener('click', () => {
+    state.adminReportsPage = (state.adminReportsPage || 1) + 1;
+    persistAssessmentContext();
+    renderAdminReports();
+  });
+}
+
+if (adminReportsPdfButton) {
+  adminReportsPdfButton.addEventListener('click', () => {
+    window.location.href = '/users/admin/reports.pdf';
+  });
+}
 
 dashboardProfileButton.addEventListener('click', () => {
   void openProfile();
@@ -1946,6 +2649,14 @@ profileBackButton.addEventListener('click', () => {
   openWelcomeScreen();
 });
 
+profileOpenReportsButton.addEventListener('click', () => {
+  void openReports();
+});
+
+reportsBackButton.addEventListener('click', () => {
+  openWelcomeScreen();
+});
+
 reportDownloadButton.addEventListener('click', () => {
   if (!state.pendingUser?.id || !state.assessmentSessionId) {
     return;
@@ -2000,12 +2711,36 @@ const bootApp = async () => {
   }
 
   if (state.pendingUser?.id) {
+    if (state.currentScreen === 'admin-reports' && state.isAdmin) {
+      try {
+        await loadAdminReports();
+      } catch (error) {
+        console.error('Failed to restore admin reports', error);
+      }
+      void openAdminReports();
+      return;
+    }
+    if (state.currentScreen === 'admin' || state.isAdmin) {
+      if (state.isAdmin) {
+        try {
+          await loadAdminDashboard(state.adminPeriodKey || '30d');
+        } catch (error) {
+          console.error('Failed to restore admin dashboard', error);
+        }
+      }
+      openAdminDashboard();
+      return;
+    }
     if (state.currentScreen === 'interview' && state.assessmentSessionCode) {
       openPrechat();
       return;
     }
     if (state.currentScreen === 'profile') {
       void openProfile();
+      return;
+    }
+    if (state.currentScreen === 'reports') {
+      void openReports();
       return;
     }
     if (state.currentScreen === 'chat' && state.sessionId) {

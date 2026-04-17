@@ -8,6 +8,43 @@ from urllib import error, request
 
 from Api.config import settings
 
+FORBIDDEN_EXTERNAL_RESOURCE_PATTERNS = (
+    r"https?://\S+",
+    r"www\.\S+",
+    r"\b[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}\b",
+    r"\btelegram\b",
+    r"\bwhatsapp\b",
+    r"\bslack\b",
+    r"\bdiscord\b",
+    r"\bgoogle\s*(docs|drive|forms|sheet|sheets)\b",
+    r"\bdropbox\b",
+    r"\bone\s*drive\b",
+    r"\bfigma\b",
+    r"\bnotion\b",
+    r"\bmiro\b",
+    r"\bcrm\b",
+    r"\bпочт[ауеы]\b",
+    r"\bemail\b",
+    r"\bтелеграм\b",
+    r"\bватсап\b",
+    r"\bсайт\b",
+    r"\bоблако\b",
+    r"\bмессенджер\b",
+)
+
+FORBIDDEN_EXTERNAL_ACTION_PATTERN = (
+    r"(отправ(?:ь|ьте|ить|ляй|ляем|лено)|"
+    r"перешл(?:и|ите|ать|яй)|"
+    r"загруз(?:и|ите|ить|ка)|"
+    r"размест(?:и|ите|ить)|"
+    r"опублику(?:й|йте|й|ать)|"
+    r"переда(?:й|йте|ть)|"
+    r"подел(?:ись|итесь|ить)|"
+    r"скин(?:ь|ьте|уть)|"
+    r"заполн(?:и|ите|ить)|"
+    r"внес(?:и|ите|ти))"
+)
+
 
 @dataclass(slots=True)
 class DeepSeekTurnResult:
@@ -124,6 +161,9 @@ class DeepSeekClient:
             "Агент проводит интервью по бизнес-кейсу, задает уточняющие вопросы, "
             "фиксирует ответы пользователя и помогает раскрыть ход рассуждений. "
             "Агент не оценивает пользователя и не выносит вердикт по качеству ответа. "
+            "Агент не должен просить пользователя передавать данные во внешние сервисы, "
+            "мессенджеры, почту, облачные хранилища, документы, формы, CRM, сайты или любые иные сторонние ресурсы. "
+            "Все ответы и материалы должны оставаться внутри текущего диалога в системе Agent_4K. "
             "Верни только текст системного промпта без markdown.\n\n"
             f"Пользователь: {full_name or 'Не указан'}\n"
             f"Роль пользователя: {role_name or 'Не определена'}\n"
@@ -467,6 +507,9 @@ class DeepSeekClient:
             f"В этом кейсе особенно важно раскрыть навыки: {', '.join(case_skills) if case_skills else 'не указаны'}. "
             "Задавай ровно один следующий уточняющий вопрос за ход, если кейс еще не раскрыт. "
             "Не завершай кейс самостоятельно. Завершение кейса происходит только по тайм-ауту или по отдельной команде завершения. "
+            "Никогда не проси пользователя отправлять, загружать, пересылать, публиковать или размещать информацию "
+            "во внешних сервисах, на сайтах, в мессенджерах, почте, документах, облачных хранилищах или CRM. "
+            "Все ответы пользователь должен давать только в текущем диалоге системы. "
             "Верни только JSON с полем assistant_message. "
             "Это должен быть следующий уточняющий вопрос без каких-либо оценок пользователя."
         )
@@ -474,7 +517,9 @@ class DeepSeekClient:
         try:
             raw = self._post_chat(messages, temperature=0.35)
             parsed = self._parse_json(raw)
-            assistant_message = str(parsed.get("assistant_message") or fallback.assistant_message)
+            assistant_message = self._sanitize_interviewer_message(
+                str(parsed.get("assistant_message") or fallback.assistant_message)
+            )
             return DeepSeekTurnResult(
                 assistant_message=assistant_message,
                 is_case_complete=False,
@@ -507,7 +552,9 @@ class DeepSeekClient:
             raw = self._post_chat(messages, temperature=0.2)
             parsed = self._parse_json(raw)
             return DeepSeekTurnResult(
-                assistant_message=str(parsed.get("assistant_message") or fallback.assistant_message),
+                assistant_message=self._sanitize_interviewer_message(
+                    str(parsed.get("assistant_message") or fallback.assistant_message)
+                ),
                 is_case_complete=True,
                 result_status=str(parsed.get("result_status") or fallback.result_status),
                 completion_score=None,
@@ -537,7 +584,9 @@ class DeepSeekClient:
             raw = self._post_chat(messages, temperature=0.2)
             parsed = self._parse_json(raw)
             return DeepSeekTurnResult(
-                assistant_message=str(parsed.get("assistant_message") or fallback.assistant_message),
+                assistant_message=self._sanitize_interviewer_message(
+                    str(parsed.get("assistant_message") or fallback.assistant_message)
+                ),
                 is_case_complete=True,
                 result_status=str(parsed.get("result_status") or fallback.result_status),
                 completion_score=None,
@@ -572,6 +621,8 @@ class DeepSeekClient:
             "Веди диалог профессионально, работай как интервьюер. "
             "Задавай по одному уточняющему вопросу за ход, помогай раскрыть решение, но не подсказывай готовый ответ. "
             "Обязательно уточняй цель решения, шаги реализации, риски, метрики, ограничения и ожидаемый эффект. "
+            "Не проси пользователя передавать данные или материалы во внешние ресурсы, мессенджеры, почту, облачные документы, CRM или сайты. "
+            "Все ответы должны оставаться внутри текущего интервью в системе Agent_4K. "
             "Не завершай кейс самостоятельно. Ты только ведешь интервью, задаешь наводящие вопросы и записываешь ответы пользователя. "
             "Завершение кейса происходит только по кнопке завершения или по тайм-ауту."
         )
@@ -909,6 +960,7 @@ class DeepSeekClient:
         result = re.sub(r"\s{2,}", " ", result)
         result = re.sub(r"\.\.", ".", result)
         result = re.sub(r"\n\s*\n+", "\n", result)
+        result = self._enforce_external_sharing_policy(result)
         result = self._normalize_prompt_sentences(result)
         return result.strip()
 
@@ -978,6 +1030,7 @@ class DeepSeekClient:
         result = re.sub(r"\n\s*\n+", "\n", result)
         result = re.sub(r"([.!?])\1+", r"\1", result)
         result = re.sub(r"\s+([,.;:!?])", r"\1", result)
+        result = self._enforce_external_sharing_policy(result)
         result = self._normalize_prompt_sentences(result)
         return result.strip()
 
@@ -987,6 +1040,62 @@ class DeepSeekClient:
             cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
             cleaned = re.sub(r"\n?```$", "", cleaned)
         return cleaned.strip()
+
+    def _sanitize_interviewer_message(self, text: str) -> str:
+        sanitized = self._enforce_external_sharing_policy(text)
+        if sanitized != (text or "").strip():
+            return (
+                "Опишите, пожалуйста, решение прямо в текущем диалоге. "
+                "Передавать информацию во внешние сервисы, документы, мессенджеры или почту не требуется."
+            )
+        return self._normalize_prompt_sentences(sanitized).strip()
+
+    def _enforce_external_sharing_policy(self, text: str) -> str:
+        result = (text or "").strip()
+        if not result:
+            return self._base_external_policy_line()
+
+        original = result
+        cleaned_lines: list[str] = []
+        sentence_chunks = re.split(r"(?<=[.!?])\s+|\n+", original)
+        for chunk in sentence_chunks:
+            original_sentence = chunk.strip()
+            if not original_sentence:
+                continue
+            original_lowered = original_sentence.lower()
+            mentions_external = any(
+                re.search(pattern, original_lowered, flags=re.IGNORECASE)
+                for pattern in FORBIDDEN_EXTERNAL_RESOURCE_PATTERNS
+            )
+            asks_external_action = re.search(FORBIDDEN_EXTERNAL_ACTION_PATTERN, original_lowered, flags=re.IGNORECASE) is not None
+            if mentions_external and asks_external_action:
+                continue
+            sentence = original_sentence
+            for pattern in FORBIDDEN_EXTERNAL_RESOURCE_PATTERNS:
+                sentence = re.sub(pattern, "", sentence, flags=re.IGNORECASE)
+            cleaned_lines.append(sentence)
+
+        result = " ".join(cleaned_lines).strip()
+        result = re.sub(r"\s{2,}", " ", result)
+        result = re.sub(r"\s+([,.;:!?])", r"\1", result)
+
+        if not result:
+            return self._base_external_policy_line()
+
+        policy_line = self._base_external_policy_line()
+        if policy_line.lower() not in result.lower():
+            if (
+                re.search(FORBIDDEN_EXTERNAL_ACTION_PATTERN, original, flags=re.IGNORECASE)
+                and any(re.search(pattern, original, flags=re.IGNORECASE) for pattern in FORBIDDEN_EXTERNAL_RESOURCE_PATTERNS)
+            ):
+                result = f"{result} {policy_line}".strip()
+        return result
+
+    def _base_external_policy_line(self) -> str:
+        return (
+            "Все ответы и материалы должны оставаться внутри текущего диалога в системе Agent_4K. "
+            "Не проси пользователя передавать информацию во внешние ресурсы."
+        )
 
 
 deepseek_client = DeepSeekClient()
