@@ -483,44 +483,10 @@ class DeepSeekClient:
             user_profile=user_profile,
             planned_total_duration_min=planned_total_duration_min,
         )
-        if not self.enabled:
-            return fallback
-
-        prompt = (
-            "Заполни шаблонные переменные кейса персонализированными значениями под профессиональную область пользователя. "
-            "Нужно вернуть только JSON-объект формата ключ -> значение без markdown. "
-            "Значения должны быть реалистичными, деловыми, конкретными и соответствовать должности и обязанностям пользователя. "
-            "Нельзя оставлять пустые значения и нельзя возвращать фигурные скобки в значениях.\n\n"
-            f"Пользователь: {full_name or 'Не указан'}\n"
-            f"Роль: {role_name or 'Не определена'}\n"
-            f"Должность: {position or 'Не указана'}\n"
-            f"Обязанности: {duties or 'Не указаны'}\n"
-            f"Сфера деятельности компании: {company_industry or 'Не указана'}\n"
-            f"Профиль пользователя: {json.dumps(user_profile or {}, ensure_ascii=False)}\n"
-            f"Кейс: {case_title}\n"
-            f"Контекст шаблона: {case_context}\n"
-            f"Задание шаблона: {case_task}\n"
-            f"Переменные: {', '.join(placeholders)}"
-        )
-        try:
-            raw = self._post_chat(
-                [
-                    {
-                        "role": "system",
-                        "content": "Ты персонализируешь бизнес-кейсы под профессиональную область пользователя.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.2,
-            )
-            parsed = self._parse_json(raw)
-            result: dict[str, str] = {}
-            for placeholder in placeholders:
-                value = str(parsed.get(placeholder) or parsed.get("{" + placeholder + "}") or fallback[placeholder]).strip()
-                result[placeholder] = value.replace("{", "").replace("}", "")
-            return result
-        except Exception:
-            return fallback
+        # Персонализация кейсов должна оставаться управляемой и воспроизводимой.
+        # Значения переменных строятся локально из профиля пользователя и ролевого
+        # контекста, а не генерируются LLM на лету.
+        return fallback
 
     def apply_personalization(self, template: str | None, values: dict[str, str]) -> str:
         if not template:

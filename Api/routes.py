@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from urllib.parse import quote
 from datetime import datetime
 
@@ -33,6 +34,8 @@ from Api.schemas import (
     AdminMethodologyCaseQualityItem,
     AdminMethodologyCoverageRow,
     AdminMethodologyPassportItem,
+    AdminMethodologyPersonalizationOption,
+    AdminMethodologyPersonalizationValueItem,
     AdminMethodologySinglePointSkillItem,
     AdminMethodologySkillGapItem,
     AdminMethodologyRoleOption,
@@ -96,6 +99,24 @@ MONTH_LABELS_RU = {
     11: "ноя",
     12: "дек",
 }
+ADMIN_PERSONALIZATION_SOURCE_LABELS = {
+    "static": "задано в шаблоне кейса",
+    "from_user_profile": "из профиля пользователя",
+    "hybrid": "смешанный источник",
+}
+ADMIN_PERSONALIZATION_FIELD_PATTERN = re.compile(r"[{}]")
+
+
+def _normalize_admin_personalization_field_code(value: str | None) -> str:
+    normalized = ADMIN_PERSONALIZATION_FIELD_PATTERN.sub("", str(value or "").strip()).strip().lower()
+    return normalized
+
+
+def _humanize_admin_personalization_field_label(code: str) -> str:
+    normalized = _normalize_admin_personalization_field_code(code)
+    if not normalized:
+        return "Переменная"
+    return normalized.replace("_", " ").strip().capitalize()
 
 
 def _normalize_phone_digits(value: str | None) -> str:
@@ -1371,6 +1392,7 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
             txt.task_for_user,
             txt.constraints_text,
             txt.stakes_text,
+            txt.personalization_variables,
             ARRAY_REMOVE(ARRAY_AGG(DISTINCT r.id ORDER BY r.id), NULL) AS role_ids,
             ARRAY_REMOVE(ARRAY_AGG(DISTINCT r.name ORDER BY r.name), NULL) AS role_names,
             ARRAY_REMOVE(ARRAY_AGG(DISTINCT s.id ORDER BY s.id), NULL) AS skill_ids,
@@ -1403,7 +1425,8 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
             txt.trigger_details,
             txt.task_for_user,
             txt.constraints_text,
-            txt.stakes_text
+            txt.stakes_text,
+            txt.personalization_variables
         LIMIT 1
         """,
         (case_id_code,),
@@ -1453,15 +1476,29 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
 
     personalization_rows = connection.execute(
         """
-        SELECT cpf.field_name
-        FROM case_type_personalization_fields ctpf
-        JOIN case_personalization_fields cpf ON cpf.id = ctpf.personalization_field_id
-        WHERE ctpf.case_type_passport_id = (
-            SELECT case_type_passport_id
-            FROM cases_registry
-            WHERE id = %s
+        SELECT field_code, field_name, description, source_type, is_required
+        FROM case_personalization_fields
+        ORDER BY
+            CASE source_type
+                WHEN 'from_user_profile' THEN 0
+                WHEN 'hybrid' THEN 1
+                ELSE 2
+            END,
+            field_name ASC
+        """,
+    ).fetchall()
+
+    personalization_value_rows = connection.execute(
+        """
+        SELECT field_code, field_label, field_value_template, source_type, is_required, display_order
+        FROM case_text_personalization_values
+        WHERE case_text_id = (
+            SELECT id
+            FROM case_texts
+            WHERE cases_registry_id = %s
+            LIMIT 1
         )
-        ORDER BY ctpf.display_order ASC, cpf.field_name ASC
+        ORDER BY display_order ASC, field_label ASC, field_code ASC
         """,
         (case_row["id"],),
     ).fetchall()
@@ -1551,6 +1588,7 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
         task_for_user=case_row["task_for_user"],
         constraints_text=case_row["constraints_text"],
         stakes_text=case_row["stakes_text"],
+        personalization_variables=case_row["personalization_variables"],
         personalization_fields=[str(row["field_name"]) for row in personalization_rows if row["field_name"]],
         required_blocks=[str(row["block_name"]) for row in response_block_rows if row["block_name"]],
         red_flags=[str(row["flag_name"]) for row in red_flag_rows if row["flag_name"]],
@@ -1592,6 +1630,27 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
                 competency_name=row["competency_name"],
             )
             for row in skill_option_rows
+        ],
+        personalization_options=[
+            AdminMethodologyPersonalizationOption(
+                field_code=str(row["field_code"]),
+                field_name=str(row["field_name"]),
+                description=row["description"],
+                source_type=str(row["source_type"]),
+                is_required=bool(row["is_required"]),
+            )
+            for row in personalization_rows
+        ],
+        personalization_items=[
+            AdminMethodologyPersonalizationValueItem(
+                field_code=str(row["field_code"]),
+                field_label=str(row["field_label"]),
+                field_value_template=row["field_value_template"],
+                source_type=str(row["source_type"]),
+                is_required=bool(row["is_required"]),
+                display_order=int(row["display_order"]),
+            )
+            for row in personalization_value_rows
         ],
         change_log=[
             AdminMethodologyChangeLogItem(
@@ -1911,6 +1970,28 @@ def _upsert_admin_methodology_case(
 
     normalized_role_ids = _normalize_admin_case_role_ids(payload.role_ids, available_role_ids)
     normalized_skill_ids = _normalize_admin_case_skill_ids(payload.skill_ids, available_skill_ids)
+    normalized_personalization_items: list[dict[str, object]] = []
+    seen_personalization_codes: set[str] = set()
+    for index, item in enumerate(payload.personalization_items or [], start=1):
+        field_code = _normalize_admin_personalization_field_code(getattr(item, "field_code", ""))
+        if not field_code or field_code in seen_personalization_codes:
+            continue
+        seen_personalization_codes.add(field_code)
+        field_label = (getattr(item, "field_label", "") or "").strip() or _humanize_admin_personalization_field_label(field_code)
+        source_type = str(getattr(item, "source_type", "") or "static").strip()
+        if source_type not in ADMIN_PERSONALIZATION_SOURCE_LABELS:
+            source_type = "static"
+        field_value_template = (getattr(item, "field_value_template", "") or "").strip() or None
+        normalized_personalization_items.append(
+            {
+                "field_code": field_code,
+                "field_label": field_label,
+                "field_value_template": field_value_template,
+                "source_type": source_type,
+                "is_required": bool(getattr(item, "is_required", False)),
+                "display_order": index,
+            }
+        )
     normalized_difficulty = "hard" if str(payload.difficulty_level).strip().lower() == "hard" else "base"
     normalized_case_status = _normalize_methodology_status(payload.case_status)
     normalized_text_status = _normalize_methodology_status(payload.case_text_status)
@@ -1984,15 +2065,54 @@ def _upsert_admin_methodology_case(
 
     existing_text_row = connection.execute(
         """
-        SELECT id, intro_context, facts_data, trigger_details, task_for_user, constraints_text, stakes_text, status
+        SELECT id, intro_context, facts_data, trigger_details, task_for_user, constraints_text, stakes_text, personalization_variables, status
         FROM case_texts
         WHERE cases_registry_id = %s
         LIMIT 1
         """,
         (case_registry_id,),
     ).fetchone()
+    existing_personalization_value_rows = []
+    if existing_text_row is not None:
+        existing_personalization_value_rows = connection.execute(
+            """
+            SELECT field_code, field_label, field_value_template, source_type, is_required, display_order
+            FROM case_text_personalization_values
+            WHERE case_text_id = %s
+            ORDER BY display_order ASC, field_code ASC
+            """,
+            (existing_text_row["id"],),
+        ).fetchall()
+    normalized_personalization_variables = (
+        ", ".join("{" + str(item["field_code"]) + "}" for item in normalized_personalization_items)
+        if normalized_personalization_items
+        else None
+    )
+    existing_personalization_signature = [
+        (
+            _normalize_admin_personalization_field_code(row["field_code"]),
+            (row["field_label"] or "").strip(),
+            (row["field_value_template"] or "").strip() or None,
+            (row["source_type"] or "static").strip(),
+            bool(row["is_required"]),
+            int(row["display_order"] or 0),
+        )
+        for row in existing_personalization_value_rows
+    ]
+    normalized_personalization_signature = [
+        (
+            str(item["field_code"]),
+            str(item["field_label"]),
+            item["field_value_template"],
+            str(item["source_type"]),
+            bool(item["is_required"]),
+            int(item["display_order"]),
+        )
+        for item in normalized_personalization_items
+    ]
+    personalization_items_changed = existing_personalization_signature != normalized_personalization_signature
     if existing_text_row is None:
-        connection.execute(
+        inserted_text_row = connection.execute(
             """
             INSERT INTO case_texts (
                 case_text_code,
@@ -2003,10 +2123,12 @@ def _upsert_admin_methodology_case(
                 task_for_user,
                 constraints_text,
                 stakes_text,
+                personalization_variables,
                 status,
                 version
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            RETURNING id
             """,
             (
                 f"TXT-{case_id_code}",
@@ -2017,11 +2139,14 @@ def _upsert_admin_methodology_case(
                 (payload.task_for_user or "").strip() or "",
                 (payload.constraints_text or "").strip() or None,
                 (payload.stakes_text or "").strip() or None,
+                (payload.personalization_variables or "").strip() or None,
                 normalized_text_status,
             ),
-        )
+        ).fetchone()
+        case_text_id = int(inserted_text_row["id"])
         text_changed = True
     else:
+        case_text_id = int(existing_text_row["id"])
         normalized_intro_context = (payload.intro_context or "").strip() or ""
         normalized_facts_data = (payload.facts_data or "").strip() or None
         normalized_trigger_details = (payload.trigger_details or "").strip() or None
@@ -2035,7 +2160,9 @@ def _upsert_admin_methodology_case(
             or (existing_text_row["task_for_user"] or "") != normalized_task_for_user
             or (existing_text_row["constraints_text"] if existing_text_row["constraints_text"] is not None else None) != normalized_constraints_text
             or (existing_text_row["stakes_text"] if existing_text_row["stakes_text"] is not None else None) != normalized_stakes_text
+            or (existing_text_row["personalization_variables"] if existing_text_row["personalization_variables"] is not None else None) != normalized_personalization_variables
             or (existing_text_row["status"] or "draft") != normalized_text_status
+            or personalization_items_changed
         )
         connection.execute(
             """
@@ -2047,6 +2174,7 @@ def _upsert_admin_methodology_case(
                 task_for_user = %s,
                 constraints_text = %s,
                 stakes_text = %s,
+                personalization_variables = %s,
                 status = %s,
                 version = CASE WHEN %s THEN version + 1 ELSE version END,
                 updated_at = NOW()
@@ -2059,9 +2187,35 @@ def _upsert_admin_methodology_case(
                 normalized_task_for_user,
                 normalized_constraints_text,
                 normalized_stakes_text,
+                normalized_personalization_variables,
                 normalized_text_status,
                 text_changed,
                 case_registry_id,
+            ),
+        )
+    connection.execute("DELETE FROM case_text_personalization_values WHERE case_text_id = %s", (case_text_id,))
+    for item in normalized_personalization_items:
+        connection.execute(
+            """
+            INSERT INTO case_text_personalization_values (
+                case_text_id,
+                field_code,
+                field_label,
+                field_value_template,
+                source_type,
+                is_required,
+                display_order
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                case_text_id,
+                item["field_code"],
+                item["field_label"],
+                item["field_value_template"],
+                item["source_type"],
+                item["is_required"],
+                item["display_order"],
             ),
         )
 
@@ -2102,6 +2256,8 @@ def _upsert_admin_methodology_case(
         change_summaries.append(("case_roles", "updated", "Обновлен набор ролей кейса."))
     if skill_mapping_changed:
         change_summaries.append(("case_skills", "updated", "Обновлен набор навыков кейса."))
+    if personalization_items_changed:
+        change_summaries.append(("case_personalization", "updated", "Обновлен набор переменных персонализации кейса."))
     if normalized_case_status == "retired" or normalized_text_status == "retired" or normalized_passport_status == "retired":
         change_summaries.append(("lifecycle", "archived", "Кейс или связанные методические сущности переведены в архивный статус."))
     for entity_scope, action, summary in change_summaries:

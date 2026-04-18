@@ -12,6 +12,7 @@ const state = {
   adminMethodologyEditMode: false,
   adminMethodologySaving: false,
   adminMethodologyDraft: null,
+  adminMethodologyActiveTextField: 'intro_context',
   adminMethodologyPage: 1,
   adminMethodologyRiskUi: {
     skillGaps: { collapsed: true, page: 1 },
@@ -299,15 +300,35 @@ const adminMethodologyDetailIntro = document.getElementById('admin-methodology-d
 const adminMethodologyDetailFacts = document.getElementById('admin-methodology-detail-facts');
 const adminMethodologyDetailTask = document.getElementById('admin-methodology-detail-task');
 const adminMethodologyDetailConstraints = document.getElementById('admin-methodology-detail-constraints');
+const adminMethodologyDetailScenario = document.getElementById('admin-methodology-detail-scenario');
+const adminMethodologyDetailEditFields = document.getElementById('admin-methodology-detail-edit-fields');
+const adminMethodologyScenarioTemplate = document.getElementById('admin-methodology-scenario-template');
+const adminMethodologyScenarioPreview = document.getElementById('admin-methodology-scenario-preview');
 const adminMethodologyDetailRoles = document.getElementById('admin-methodology-detail-roles');
 const adminMethodologyDetailSkills = document.getElementById('admin-methodology-detail-skills');
 const adminMethodologyDetailPersonalization = document.getElementById('admin-methodology-detail-personalization');
+const adminMethodologyDetailPersonalizationTable = document.getElementById('admin-methodology-detail-personalization-table');
 const adminMethodologyDetailBlocks = document.getElementById('admin-methodology-detail-blocks');
 const adminMethodologyDetailRedflags = document.getElementById('admin-methodology-detail-redflags');
 const adminMethodologyDetailBlockers = document.getElementById('admin-methodology-detail-blockers');
 const adminMethodologyDetailChecks = document.getElementById('admin-methodology-detail-checks');
 const adminMethodologyDetailSignals = document.getElementById('admin-methodology-detail-signals');
 const adminMethodologyDetailHistory = document.getElementById('admin-methodology-detail-history');
+const adminMethodologyDrawerPanel = document.querySelector('.admin-methodology-drawer-panel');
+
+if (adminMethodologyScenarioTemplate) {
+  adminMethodologyScenarioTemplate.addEventListener('click', () => {
+    state.adminMethodologyScenarioMode = 'template';
+    renderAdminMethodologyDetail();
+  });
+}
+
+if (adminMethodologyScenarioPreview) {
+  adminMethodologyScenarioPreview.addEventListener('click', () => {
+    state.adminMethodologyScenarioMode = 'preview';
+    renderAdminMethodologyDetail();
+  });
+}
 const adminReportsBackButton = document.getElementById('admin-reports-back-button');
 const adminReportsTitle = document.getElementById('admin-reports-title');
 const adminReportsSubtitle = document.getElementById('admin-reports-subtitle');
@@ -1507,6 +1528,17 @@ const getAdminMethodologyDraftFromDetail = (detail) => ({
   task_for_user: detail?.task_for_user || '',
   constraints_text: detail?.constraints_text || '',
   stakes_text: detail?.stakes_text || '',
+  personalization_variables: detail?.personalization_variables || '',
+  personalization_items: Array.isArray(detail?.personalization_items)
+    ? detail.personalization_items.map((item, index) => ({
+      field_code: normalizePersonalizationCode(item.field_code),
+      field_label: item.field_label || '',
+      field_value_template: item.field_value_template || '',
+      source_type: item.source_type || 'static',
+      is_required: Boolean(item.is_required),
+      display_order: Number(item.display_order) || index + 1,
+    }))
+    : [],
   role_ids: Array.isArray(detail?.selected_role_ids) ? [...detail.selected_role_ids] : [],
   skill_ids: Array.isArray(detail?.selected_skill_ids) ? [...detail.selected_skill_ids] : [],
 });
@@ -1517,6 +1549,13 @@ const setDetailNodeText = (node, text, fallback = '—') => {
   }
   node.textContent = text || fallback;
 };
+
+const escapeHtml = (value) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 const setDetailNodeMultiline = (node, text, fallback, hiddenWhenEmpty = false) => {
   if (!node) {
@@ -1530,6 +1569,485 @@ const setDetailNodeMultiline = (node, text, fallback, hiddenWhenEmpty = false) =
 const getMethodologyStatusLabel = (status) => (
   status === 'ready' ? 'Ready' : status === 'retired' ? 'Архив' : 'Draft'
 );
+
+const normalizePersonalizationCode = (value) => String(value || '')
+  .trim()
+  .replace(/[{}]/g, '')
+  .toLowerCase();
+
+const buildAdminMethodologyPersonalizationDefaults = (code) => {
+  const normalized = normalizePersonalizationCode(code);
+  const defaults = {
+    'роль_кратко': { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' },
+    'job_title': { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' },
+    'industry': { value: 'сервиса и клиентской поддержки', source: 'из профиля пользователя' },
+    'процесс': { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' },
+    'процесс/задача': { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' },
+    'пример поведения': { value: 'сотрудник повторно закрывает обращения без решения', source: 'задано в шаблоне кейса' },
+    'влияние': { value: 'растет число повторных обращений', source: 'задано в шаблоне кейса' },
+    'срок': { value: '2 недели', source: 'задано в шаблоне кейса' },
+    'ресурсы развития': { value: 'наставничество и еженедельные 1:1', source: 'задано в шаблоне кейса' },
+    'метрика': { value: 'доля повторных обращений', source: 'задано в шаблоне кейса' },
+    'стейкхолдер': { value: 'руководитель направления', source: 'задано в шаблоне кейса' },
+    'ограничение': { value: 'нельзя менять SLA без согласования', source: 'задано в шаблоне кейса' },
+    'система': { value: 'Service Desk', source: 'задано в шаблоне кейса' },
+    'тип клиента': { value: 'внутренний заказчик', source: 'задано в шаблоне кейса' },
+    'риск': { value: 'эскалация повторных обращений', source: 'задано в шаблоне кейса' },
+    'триггер': { value: 'жалоба на закрытие обращения без решения', source: 'задано в шаблоне кейса' },
+  };
+  if (defaults[normalized]) {
+    return defaults[normalized];
+  }
+  return {
+    value: 'значение задается методистом',
+    source: normalized.includes('роль') || normalized.includes('industry') ? 'из профиля пользователя' : 'задано в шаблоне кейса',
+  };
+};
+
+const expandAdminMethodologyRoleLabel = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'm') {
+    return 'Менеджер';
+  }
+  if (normalized === 'l') {
+    return 'Линейный сотрудник';
+  }
+  if (normalized === 'leader') {
+    return 'Лидер';
+  }
+  return String(value || '').trim();
+};
+
+const extractAdminMethodologyPlaceholders = (text) => {
+  const matches = String(text || '').match(/\{[^}]+\}/g) || [];
+  return Array.from(new Set(matches.map((item) => normalizePersonalizationCode(item)).filter(Boolean)));
+};
+
+const collectAdminMethodologyScenarioText = (source) => {
+  const parts = [
+    source?.intro_context,
+    source?.facts_data,
+    source?.task_for_user,
+    source?.constraints_text,
+  ].map((item) => String(item || '').trim()).filter(Boolean);
+  return parts.join('\n\n');
+};
+
+const collectAdminMethodologyPersonalizationRows = (detail, scenarioText) => {
+  const sourceItems = Array.isArray(detail?.personalization_items) ? detail.personalization_items : [];
+  if (sourceItems.length) {
+    return sourceItems.map((item) => {
+      const code = normalizePersonalizationCode(item.field_code);
+      const fallback = buildAdminMethodologyPersonalizationDefaults(code);
+      const resolvedValue = code === 'роль_кратко' || code === 'role'
+        ? expandAdminMethodologyRoleLabel(item.field_value_template || fallback.value)
+        : (item.field_value_template || fallback.value);
+      return {
+        code,
+        label: item.field_label || code,
+        value: resolvedValue,
+        source: item.source_type === 'from_user_profile'
+          ? 'из профиля пользователя'
+          : item.source_type === 'hybrid'
+            ? 'смешанный источник'
+            : 'задано в шаблоне кейса',
+      };
+    });
+  }
+  const fromText = extractAdminMethodologyPlaceholders(scenarioText);
+  const fromStored = extractAdminMethodologyPlaceholders(detail?.personalization_variables || '');
+  const fromDetail = Array.isArray(detail?.personalization_fields)
+    ? detail.personalization_fields.map((item) => normalizePersonalizationCode(item))
+    : [];
+  const codes = Array.from(new Set([...fromText, ...fromStored, ...fromDetail])).filter(Boolean);
+  return codes.map((code) => {
+    const fallback = buildAdminMethodologyPersonalizationDefaults(code);
+    const resolvedValue = code === 'роль_кратко' || code === 'role'
+      ? expandAdminMethodologyRoleLabel(fallback.value)
+      : fallback.value;
+    return {
+      code,
+      label: code,
+      value: resolvedValue,
+      source: fallback.source,
+    };
+  });
+};
+
+const buildAdminMethodologyScenarioMarkup = (text, personalizationRows, mode) => {
+  const safeText = escapeHtml(String(text || '').trim() || 'Текст кейса пока не заполнен.');
+  if (mode !== 'preview') {
+    return safeText.replace(/\n/g, '<br>');
+  }
+  const valueMap = new Map(personalizationRows.map((item) => [normalizePersonalizationCode(item.code), item.value]));
+  return safeText
+    .replace(/\{([^}]+)\}/g, (_, rawCode) => {
+      const code = normalizePersonalizationCode(rawCode);
+      return '<span class="admin-methodology-inline-variable">' + escapeHtml(valueMap.get(code) || ('{' + rawCode + '}')) + '</span>';
+    })
+    .replace(/\n/g, '<br>');
+};
+
+const renderAdminMethodologyPersonalizationTable = (rows) => {
+  if (!adminMethodologyDetailPersonalizationTable) {
+    return;
+  }
+  if (!rows.length) {
+    adminMethodologyDetailPersonalizationTable.innerHTML = '<p class="report-empty-state">Переменные персонализации пока не заданы.</p>';
+    return;
+  }
+  adminMethodologyDetailPersonalizationTable.innerHTML =
+    '<div class="admin-methodology-personalization-row admin-methodology-personalization-head">' +
+      '<span>Переменная</span>' +
+      '<span>Значение</span>' +
+      '<span>Источник</span>' +
+    '</div>' +
+    rows.map((row) => (
+      '<div class="admin-methodology-personalization-row">' +
+        '<span class="admin-methodology-personalization-code">{' + escapeHtml(row.code) + '}</span>' +
+        '<span>' + escapeHtml(row.value) + '</span>' +
+        '<span class="admin-methodology-personalization-source">' + escapeHtml(row.source) + '</span>' +
+      '</div>'
+    )).join('');
+};
+
+const syncAdminMethodologyPersonalizationVariables = () => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const items = Array.isArray(state.adminMethodologyDraft.personalization_items)
+    ? state.adminMethodologyDraft.personalization_items
+    : [];
+  state.adminMethodologyDraft.personalization_variables = items.length
+    ? items.map((item) => '{' + normalizePersonalizationCode(item.field_code) + '}').join(', ')
+    : '';
+};
+
+const getAdminMethodologyPersonalizationOptionMap = (detail) => {
+  const map = new Map();
+  (detail?.personalization_options || []).forEach((option) => {
+    const code = normalizePersonalizationCode(option.field_code);
+    if (!code) {
+      return;
+    }
+    map.set(code, option);
+  });
+  return map;
+};
+
+const buildAdminMethodologyPersonalizationItem = (detail, fieldCode, overrides = {}) => {
+  const code = normalizePersonalizationCode(fieldCode);
+  const option = getAdminMethodologyPersonalizationOptionMap(detail).get(code);
+  const fallback = buildAdminMethodologyPersonalizationDefaults(code);
+  return {
+    field_code: code,
+    field_label: overrides.field_label || option?.field_name || fallback.label || code,
+    field_value_template: overrides.field_value_template ?? fallback.value ?? '',
+    source_type: overrides.source_type || option?.source_type || (fallback.source === 'из профиля пользователя' ? 'from_user_profile' : 'static'),
+    is_required: Boolean(overrides.is_required ?? option?.is_required),
+    display_order: Number(overrides.display_order) || 1,
+  };
+};
+
+const ensureAdminMethodologyPersonalizationDraft = (detail) => {
+  if (!state.adminMethodologyDraft) {
+    return [];
+  }
+  if (!Array.isArray(state.adminMethodologyDraft.personalization_items)) {
+    state.adminMethodologyDraft.personalization_items = [];
+  }
+  if (!state.adminMethodologyDraft.personalization_items.length) {
+    const codes = collectAdminMethodologyPersonalizationRows(detail, collectAdminMethodologyScenarioText(state.adminMethodologyDraft))
+      .map((item) => normalizePersonalizationCode(item.code));
+    state.adminMethodologyDraft.personalization_items = codes.map((code, index) => ({
+      ...buildAdminMethodologyPersonalizationItem(detail, code),
+      display_order: index + 1,
+    }));
+    syncAdminMethodologyPersonalizationVariables();
+  }
+  return state.adminMethodologyDraft.personalization_items;
+};
+
+const getNextAdminMethodologyPersonalizationCode = (detail) => {
+  const usedCodes = new Set(
+    (state.adminMethodologyDraft?.personalization_items || []).map((item) => normalizePersonalizationCode(item.field_code)),
+  );
+  const available = (detail?.personalization_options || [])
+    .map((item) => normalizePersonalizationCode(item.field_code))
+    .find((code) => code && !usedCodes.has(code));
+  if (available) {
+    return available;
+  }
+  let index = 1;
+  while (usedCodes.has('новая_переменная_' + index)) {
+    index += 1;
+  }
+  return 'новая_переменная_' + index;
+};
+
+const updateAdminMethodologyPlaceholderAcrossDraft = (fromCode, toCode) => {
+  if (!state.adminMethodologyDraft || !fromCode || fromCode === toCode) {
+    return;
+  }
+  const pattern = new RegExp('\\{\\s*' + fromCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}', 'gi');
+  ['intro_context', 'facts_data', 'task_for_user', 'constraints_text'].forEach((key) => {
+    state.adminMethodologyDraft[key] = String(state.adminMethodologyDraft[key] || '').replace(pattern, '{' + toCode + '}');
+  });
+};
+
+const removeAdminMethodologyPlaceholderFromDraft = (fieldCode) => {
+  if (!state.adminMethodologyDraft || !fieldCode) {
+    return;
+  }
+  const escaped = fieldCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp('\\{\\s*' + escaped + '\\s*\\}', 'gi');
+  ['intro_context', 'facts_data', 'task_for_user', 'constraints_text'].forEach((key) => {
+    state.adminMethodologyDraft[key] = String(state.adminMethodologyDraft[key] || '')
+      .replace(pattern, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  });
+};
+
+const addAdminMethodologyPersonalizationItem = () => {
+  if (!state.adminMethodologyDraft || !state.adminMethodologyDetail) {
+    return;
+  }
+  const items = ensureAdminMethodologyPersonalizationDraft(state.adminMethodologyDetail);
+  const nextCode = getNextAdminMethodologyPersonalizationCode(state.adminMethodologyDetail);
+  items.push({
+    ...buildAdminMethodologyPersonalizationItem(state.adminMethodologyDetail, nextCode),
+    display_order: items.length + 1,
+  });
+  syncAdminMethodologyPersonalizationVariables();
+  insertAdminMethodologyPlaceholder(nextCode);
+  renderAdminMethodologyDetail();
+};
+
+const updateAdminMethodologyPersonalizationItem = (index, patch) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const items = ensureAdminMethodologyPersonalizationDraft(state.adminMethodologyDetail);
+  const current = items[index];
+  if (!current) {
+    return;
+  }
+  const nextCode = patch.field_code ? normalizePersonalizationCode(patch.field_code) : current.field_code;
+  const duplicateIndex = items.findIndex((item, itemIndex) => itemIndex !== index && normalizePersonalizationCode(item.field_code) === nextCode);
+  if (duplicateIndex >= 0) {
+    return;
+  }
+  if (patch.field_code && nextCode && nextCode !== normalizePersonalizationCode(current.field_code)) {
+    updateAdminMethodologyPlaceholderAcrossDraft(normalizePersonalizationCode(current.field_code), nextCode);
+  }
+  const option = getAdminMethodologyPersonalizationOptionMap(state.adminMethodologyDetail).get(nextCode);
+  items[index] = {
+    ...current,
+    ...patch,
+    field_code: nextCode,
+    field_label: patch.field_label ?? option?.field_name ?? current.field_label,
+    source_type: patch.source_type || current.source_type || option?.source_type || 'static',
+    display_order: index + 1,
+  };
+  syncAdminMethodologyPersonalizationVariables();
+  refreshAdminMethodologyScenarioSection(state.adminMethodologyDetail, state.adminMethodologyDraft);
+  renderAdminMethodologyPersonalizationEditor(state.adminMethodologyDetail, state.adminMethodologyDraft);
+};
+
+const removeAdminMethodologyPersonalizationItem = (index) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const items = ensureAdminMethodologyPersonalizationDraft(state.adminMethodologyDetail);
+  const removed = items[index];
+  if (!removed) {
+    return;
+  }
+  removeAdminMethodologyPlaceholderFromDraft(normalizePersonalizationCode(removed.field_code));
+  items.splice(index, 1);
+  items.forEach((item, itemIndex) => {
+    item.display_order = itemIndex + 1;
+  });
+  syncAdminMethodologyPersonalizationVariables();
+  refreshAdminMethodologyScenarioSection(state.adminMethodologyDetail, state.adminMethodologyDraft);
+  renderAdminMethodologyDetail();
+};
+
+const insertAdminMethodologyPlaceholder = (fieldCode) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const normalizedCode = normalizePersonalizationCode(fieldCode);
+  if (!normalizedCode) {
+    return;
+  }
+  const placeholder = '{' + normalizedCode + '}';
+  const fieldKey = ['intro_context', 'facts_data', 'task_for_user', 'constraints_text'].includes(state.adminMethodologyActiveTextField)
+    ? state.adminMethodologyActiveTextField
+    : 'intro_context';
+  const target = document.querySelector('[data-field-key="' + fieldKey + '"]');
+  const currentValue = String(state.adminMethodologyDraft[fieldKey] || '');
+  if (currentValue.includes(placeholder)) {
+    return;
+  }
+  let nextValue = currentValue;
+  if (target && typeof target.selectionStart === 'number' && typeof target.selectionEnd === 'number') {
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const prefix = currentValue.slice(0, start);
+    const suffix = currentValue.slice(end);
+    const spacerBefore = prefix && !/\s$/.test(prefix) ? ' ' : '';
+    const spacerAfter = suffix && !/^\s/.test(suffix) ? ' ' : '';
+    nextValue = prefix + spacerBefore + placeholder + spacerAfter + suffix;
+    state.adminMethodologyDraft[fieldKey] = nextValue;
+    target.value = nextValue;
+    const cursorPosition = prefix.length + spacerBefore.length + placeholder.length;
+    target.focus();
+    target.selectionStart = cursorPosition;
+    target.selectionEnd = cursorPosition;
+  } else {
+    nextValue = currentValue ? currentValue + '\n' + placeholder : placeholder;
+    state.adminMethodologyDraft[fieldKey] = nextValue;
+  }
+  refreshAdminMethodologyScenarioSection(state.adminMethodologyDetail, state.adminMethodologyDraft);
+};
+
+const renderAdminMethodologyPersonalizationEditor = (detail, source) => {
+  if (!adminMethodologyDetailPersonalizationTable) {
+    return;
+  }
+  const items = ensureAdminMethodologyPersonalizationDraft(detail);
+  const optionMap = getAdminMethodologyPersonalizationOptionMap(detail);
+  adminMethodologyDetailPersonalizationTable.innerHTML = '';
+
+  const help = document.createElement('div');
+  help.className = 'admin-methodology-personalization-help';
+  help.textContent = 'Добавляйте переменные из общего списка, задавайте им значения и вставляйте плейсхолдер в текст шаблона одной кнопкой.';
+  adminMethodologyDetailPersonalizationTable.appendChild(help);
+
+  const table = document.createElement('div');
+  table.className = 'admin-methodology-personalization-editor-table';
+  table.innerHTML =
+    '<div class="admin-methodology-personalization-editor-row admin-methodology-personalization-editor-head">' +
+      '<span>Переменная</span>' +
+      '<span>Значение</span>' +
+      '<span>Источник</span>' +
+      '<span></span>' +
+    '</div>';
+
+  items.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'admin-methodology-personalization-editor-row';
+
+    const fieldCell = document.createElement('div');
+    const fieldSelect = document.createElement('select');
+    fieldSelect.className = 'admin-methodology-input';
+    const allCodes = Array.from(new Set([
+      ...Array.from(optionMap.keys()),
+      normalizePersonalizationCode(item.field_code),
+    ].filter(Boolean)));
+    allCodes.forEach((code) => {
+      const option = document.createElement('option');
+      option.value = code;
+      option.textContent = '{' + code + '}';
+      option.selected = code === normalizePersonalizationCode(item.field_code);
+      fieldSelect.appendChild(option);
+    });
+    fieldSelect.addEventListener('input', (event) => {
+      const nextCode = normalizePersonalizationCode(event.target.value);
+      const option = optionMap.get(nextCode);
+      updateAdminMethodologyPersonalizationItem(index, {
+        field_code: nextCode,
+        field_label: option?.field_name || item.field_label || nextCode,
+        source_type: option?.source_type || item.source_type || 'static',
+      });
+    });
+    fieldCell.appendChild(fieldSelect);
+    row.appendChild(fieldCell);
+
+    const valueCell = document.createElement('div');
+    if ((item.source_type || 'static') === 'from_user_profile') {
+      const profileHint = document.createElement('div');
+      profileHint.className = 'admin-methodology-personalization-profile-hint';
+      profileHint.textContent = 'Значение подставляется из профиля пользователя';
+      valueCell.appendChild(profileHint);
+    } else {
+      const valueInput = document.createElement('input');
+      valueInput.type = 'text';
+      valueInput.className = 'admin-methodology-input';
+      valueInput.placeholder = 'Введите значение переменной';
+      valueInput.value = item.field_value_template || '';
+      valueInput.addEventListener('input', (event) => {
+        updateAdminMethodologyPersonalizationItem(index, {
+          field_value_template: event.target.value,
+        });
+      });
+      valueCell.appendChild(valueInput);
+    }
+    row.appendChild(valueCell);
+
+    const sourceCell = document.createElement('div');
+    const sourceSelect = document.createElement('select');
+    sourceSelect.className = 'admin-methodology-input';
+    [
+      { value: 'static', label: 'задано в шаблоне кейса' },
+      { value: 'from_user_profile', label: 'из профиля пользователя' },
+      { value: 'hybrid', label: 'смешанный источник' },
+    ].forEach((entry) => {
+      const option = document.createElement('option');
+      option.value = entry.value;
+      option.textContent = entry.label;
+      option.selected = entry.value === (item.source_type || 'static');
+      sourceSelect.appendChild(option);
+    });
+    sourceSelect.addEventListener('input', (event) => {
+      updateAdminMethodologyPersonalizationItem(index, {
+        source_type: event.target.value,
+      });
+    });
+    sourceCell.appendChild(sourceSelect);
+    row.appendChild(sourceCell);
+
+    const actionCell = document.createElement('div');
+    actionCell.className = 'admin-methodology-personalization-actions';
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'admin-methodology-icon-button';
+    removeButton.title = 'Удалить переменную';
+    removeButton.setAttribute('aria-label', 'Удалить переменную');
+    removeButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v9H7V9Zm4 0h2v9h-2V9Zm4 0h2v9h-2V9ZM6 7h12l-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7Z"/>' +
+      '</svg>';
+    removeButton.addEventListener('click', () => {
+      removeAdminMethodologyPersonalizationItem(index);
+    });
+    actionCell.appendChild(removeButton);
+    row.appendChild(actionCell);
+
+    table.appendChild(row);
+  });
+
+  adminMethodologyDetailPersonalizationTable.appendChild(table);
+};
+
+const refreshAdminMethodologyScenarioSection = (detail, source) => {
+  const scenarioText = collectAdminMethodologyScenarioText(source);
+  const personalizationRows = collectAdminMethodologyPersonalizationRows(source, scenarioText);
+  const scenarioMode = state.adminMethodologyScenarioMode || 'template';
+  if (adminMethodologyDetailScenario) {
+    adminMethodologyDetailScenario.innerHTML = state.adminMethodologyEditMode
+      ? '<div class="admin-methodology-edit-hint">Редактируйте текст шаблона в полях ниже. Здесь показывается только компактная область просмотра.</div>'
+      : buildAdminMethodologyScenarioMarkup(scenarioText, personalizationRows, scenarioMode);
+  }
+  if (state.adminMethodologyEditMode) {
+    renderAdminMethodologyPersonalizationEditor(detail, source);
+  } else {
+    renderAdminMethodologyPersonalizationTable(personalizationRows);
+  }
+};
 
 const renderAdminMethodologyEditorField = (node, kind, config) => {
   if (!node) {
@@ -1554,6 +2072,12 @@ const renderAdminMethodologyEditorField = (node, kind, config) => {
     control.type = kind === 'number' ? 'number' : 'text';
   }
   control.className = 'admin-methodology-input';
+  if (config.fieldKey) {
+    control.dataset.fieldKey = config.fieldKey;
+    control.addEventListener('focus', () => {
+      state.adminMethodologyActiveTextField = config.fieldKey;
+    });
+  }
   control.value = config.value ?? '';
   if (config.placeholder) {
     control.placeholder = config.placeholder;
@@ -1630,6 +2154,8 @@ const renderAdminMethodologyDetail = () => {
   }
   const isEditing = Boolean(state.adminMethodologyEditMode);
   const draft = state.adminMethodologyDraft || getAdminMethodologyDraftFromDetail(detail);
+  const scenarioSource = isEditing ? draft : detail;
+  const scenarioMode = state.adminMethodologyScenarioMode || 'template';
 
   adminMethodologyDetailTitle.textContent = detail.title || 'Кейс';
   adminMethodologyDetailSubtitle.textContent = (detail.type_code || '—') + ' · ' + (detail.type_name || 'Тип кейса');
@@ -1645,6 +2171,34 @@ const renderAdminMethodologyDetail = () => {
   }
   if (adminMethodologyDetailSaveStatus) {
     adminMethodologyDetailSaveStatus.classList.toggle('hidden', !state.adminMethodologySaving);
+  }
+  if (adminMethodologyDrawerPanel) {
+    adminMethodologyDrawerPanel.classList.toggle('editing', isEditing);
+  }
+  if (adminMethodologyDetailEditFields) {
+    adminMethodologyDetailEditFields.classList.toggle('hidden', !isEditing);
+  }
+  if (adminMethodologyScenarioTemplate) {
+    adminMethodologyScenarioTemplate.classList.toggle('active', scenarioMode === 'template');
+  }
+  if (adminMethodologyScenarioPreview) {
+    adminMethodologyScenarioPreview.classList.toggle('active', scenarioMode === 'preview');
+  }
+  refreshAdminMethodologyScenarioSection(detail, scenarioSource);
+  const personalizationBoxHead = adminMethodologyDetailPersonalizationTable?.parentElement?.querySelector('.admin-methodology-personalization-box-head');
+  if (personalizationBoxHead) {
+    const existingAction = personalizationBoxHead.querySelector('.admin-methodology-personalization-add');
+    if (existingAction) {
+      existingAction.remove();
+    }
+    if (isEditing) {
+      const addButton = document.createElement('button');
+      addButton.type = 'button';
+      addButton.className = 'ghost-button compact-ghost admin-methodology-personalization-add';
+      addButton.textContent = 'Добавить переменную';
+      addButton.addEventListener('click', addAdminMethodologyPersonalizationItem);
+      personalizationBoxHead.appendChild(addButton);
+    }
   }
 
   if (isEditing) {
@@ -1721,35 +2275,43 @@ const renderAdminMethodologyDetail = () => {
     timingWrap.appendChild(timingInput);
     adminMethodologyDetailTiming.appendChild(timingWrap);
     renderAdminMethodologyEditorField(adminMethodologyDetailIntro, 'textarea', {
+      fieldKey: 'intro_context',
       value: draft.intro_context,
       rows: 5,
       placeholder: 'Контекст кейса',
       onChange: (value) => {
         state.adminMethodologyDraft.intro_context = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
       },
     });
     renderAdminMethodologyEditorField(adminMethodologyDetailFacts, 'textarea', {
+      fieldKey: 'facts_data',
       value: draft.facts_data,
       rows: 4,
       placeholder: 'Дополнительные факты и данные',
       onChange: (value) => {
         state.adminMethodologyDraft.facts_data = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
       },
     });
     renderAdminMethodologyEditorField(adminMethodologyDetailTask, 'textarea', {
+      fieldKey: 'task_for_user',
       value: draft.task_for_user,
       rows: 5,
       placeholder: 'Задача для пользователя',
       onChange: (value) => {
         state.adminMethodologyDraft.task_for_user = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
       },
     });
     renderAdminMethodologyEditorField(adminMethodologyDetailConstraints, 'textarea', {
+      fieldKey: 'constraints_text',
       value: draft.constraints_text,
       rows: 4,
       placeholder: 'Ограничения и ставки',
       onChange: (value) => {
         state.adminMethodologyDraft.constraints_text = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
       },
     });
     adminMethodologyDetailFacts.classList.remove('hidden');
@@ -1797,6 +2359,9 @@ const renderAdminMethodologyDetail = () => {
   }
 
   renderMethodologyChips(adminMethodologyDetailPersonalization, detail.personalization_fields, 'Персонализация не задана', 'muted');
+  if (adminMethodologyDetailPersonalization && adminMethodologyDetailPersonalization.parentElement) {
+    adminMethodologyDetailPersonalization.parentElement.classList.add('hidden');
+  }
 
   adminMethodologyDetailBlocks.innerHTML = '';
   (detail.required_blocks && detail.required_blocks.length ? detail.required_blocks : ['Блоки ответа не заданы.']).forEach((text) => {
@@ -1873,6 +2438,7 @@ const openAdminMethodologyDetail = async (caseIdCode) => {
   state.adminMethodologyEditMode = false;
   state.adminMethodologySaving = false;
   state.adminMethodologyDraft = null;
+  state.adminMethodologyScenarioMode = 'template';
   if (adminMethodologyDrawer) {
     adminMethodologyDrawer.classList.remove('hidden');
   }

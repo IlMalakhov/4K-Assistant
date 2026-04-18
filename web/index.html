@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>4K Ассистент</title>
-  <link rel="stylesheet" href="/web/app.css?v=20260418-2252">
+  <link rel="stylesheet" href="/web/app.css?v=20260419-0014">
 </head>
 <body>
   <div id="app-loader" class="app-loader hidden" aria-live="polite">
@@ -461,7 +461,17 @@
                   <h4>Сценарий кейса</h4>
                 </div>
               </div>
-              <div class="admin-methodology-detail-stack">
+              <div class="admin-methodology-scenario-toolbar">
+                <div class="admin-methodology-scenario-tabs">
+                  <button id="admin-methodology-scenario-template" type="button" class="admin-methodology-scenario-tab active">Шаблон</button>
+                  <button id="admin-methodology-scenario-preview" type="button" class="admin-methodology-scenario-tab">Предпросмотр</button>
+                </div>
+              </div>
+              <div class="admin-methodology-detail-block admin-methodology-case-text-block">
+                <span class="admin-methodology-detail-block-label">Текст шаблона</span>
+                <div id="admin-methodology-detail-scenario" class="admin-methodology-value admin-methodology-case-text">—</div>
+              </div>
+              <div id="admin-methodology-detail-edit-fields" class="admin-methodology-detail-stack hidden">
                 <div class="admin-methodology-detail-block">
                   <span class="admin-methodology-detail-block-label">Вводные и контекст</span>
                   <div id="admin-methodology-detail-intro" class="admin-methodology-value">—</div>
@@ -478,6 +488,12 @@
                   <span class="admin-methodology-detail-block-label">Ограничения и условия</span>
                   <div id="admin-methodology-detail-constraints" class="admin-methodology-value hidden">—</div>
                 </div>
+              </div>
+              <div class="admin-methodology-personalization-box">
+                <div class="admin-methodology-personalization-box-head">
+                  <span class="admin-methodology-chip-group-title">Переменные персонализации</span>
+                </div>
+                <div id="admin-methodology-detail-personalization-table" class="admin-methodology-personalization-table"></div>
               </div>
               <div class="admin-methodology-detail-chip-groups">
                 <div class="admin-methodology-chip-group">
@@ -1046,6 +1062,6 @@
     </section>
   </main>
 
-  <script src="/web/app.js?v=20260418-2252" defer></script>
+  <script src="/web/app.js?v=20260419-0014" defer></script>
 </body>
 </html>

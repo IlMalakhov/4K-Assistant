@@ -3683,6 +3683,214 @@ button {
   align-items: start;
 }
 
+.admin-methodology-scenario-toolbar {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.admin-methodology-scenario-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(243, 245, 255, 0.98);
+  border: 1px solid rgba(204, 208, 232, 0.72);
+}
+
+.admin-methodology-scenario-tab {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-methodology-scenario-tab.active {
+  background: linear-gradient(135deg, rgba(102, 93, 245, 0.14), rgba(125, 108, 255, 0.18));
+  color: var(--accent);
+}
+
+.admin-methodology-case-text-block {
+  gap: 8px;
+}
+
+.admin-methodology-case-text {
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+.admin-methodology-inline-variable {
+  display: inline;
+  padding: 0 2px;
+  border-radius: 6px;
+  background: rgba(102, 93, 245, 0.1);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.admin-methodology-personalization-box {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(247, 248, 254, 0.96);
+  border: 1px solid rgba(204, 208, 232, 0.72);
+}
+
+.admin-methodology-personalization-box-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.admin-methodology-personalization-table {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-methodology-personalization-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.4fr) minmax(132px, 0.9fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid rgba(204, 208, 232, 0.56);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.admin-methodology-personalization-head {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-methodology-personalization-code {
+  font-family: "SF Mono", "Menlo", monospace;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.admin-methodology-personalization-source {
+  color: var(--text-muted);
+}
+
+.admin-methodology-personalization-help {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-methodology-personalization-editor {
+  min-height: 92px;
+}
+
+.admin-methodology-personalization-editor-table {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-methodology-personalization-editor-row {
+  display: grid;
+  grid-template-columns: minmax(132px, 0.9fr) minmax(0, 1.35fr) minmax(150px, 0.95fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid rgba(204, 208, 232, 0.56);
+}
+
+.admin-methodology-personalization-editor-head {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-methodology-personalization-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.admin-methodology-personalization-profile-hint {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.admin-methodology-icon-button {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(204, 208, 232, 0.92);
+  border-radius: 10px;
+  background: #fff;
+  color: #c15757;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.admin-methodology-icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.admin-methodology-icon-button:hover {
+  border-color: rgba(193, 87, 87, 0.45);
+  background: rgba(193, 87, 87, 0.06);
+}
+
+.admin-methodology-icon-button:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(193, 87, 87, 0.12);
+}
+
+.admin-methodology-personalization-add {
+  flex-shrink: 0;
+}
+
+.admin-methodology-edit-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-methodology-drawer-panel.editing .admin-methodology-case-text-block {
+  padding: 8px 10px;
+}
+
+.admin-methodology-drawer-panel.editing .admin-methodology-case-text {
+  min-height: 0;
+}
+
+.admin-methodology-drawer-panel.editing .admin-methodology-detail-card {
+  gap: 8px;
+}
+
 .admin-methodology-detail-block {
   display: grid;
   gap: 5px;
@@ -4202,6 +4410,22 @@ button {
 
   .admin-methodology-detail-chip-groups {
     grid-template-columns: 1fr;
+  }
+
+  .admin-methodology-personalization-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-methodology-personalization-editor-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-methodology-personalization-head {
+    display: none;
+  }
+
+  .admin-methodology-personalization-editor-head {
+    display: none;
   }
 }
 

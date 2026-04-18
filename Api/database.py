@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import psycopg
 from psycopg.rows import dict_row
 
@@ -11,6 +13,41 @@ DEFAULT_LEVEL_PERCENT_MAP = {
     "L3": 92,
     "N/A": 0,
 }
+
+PERSONALIZATION_PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]+)\}")
+
+
+def _normalize_personalization_field_code(value: str | None) -> str:
+    normalized = str(value or "").strip().replace("{", "").replace("}", "")
+    normalized = re.sub(r"\s+", "_", normalized)
+    normalized = re.sub(r"[^\w/]+", "_", normalized, flags=re.UNICODE)
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return normalized.lower()
+
+
+def _extract_personalization_field_codes(*texts: str | None) -> list[str]:
+    codes: list[str] = []
+    seen: set[str] = set()
+    for text in texts:
+        for match in PERSONALIZATION_PLACEHOLDER_PATTERN.findall(str(text or "")):
+            code = _normalize_personalization_field_code(match)
+            if code and code not in seen:
+                seen.add(code)
+                codes.append(code)
+    return codes
+
+
+def _humanize_personalization_field_name(code: str) -> str:
+    normalized = str(code or "").strip().replace("_", " ").replace("/", " / ")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized.capitalize() if normalized else "Переменная"
+
+
+def _default_personalization_source_type(code: str) -> str:
+    normalized = _normalize_personalization_field_code(code)
+    if normalized in {"роль_кратко", "job_title", "industry", "должность", "сфера_деятельности_компании"}:
+        return "from_user_profile"
+    return "static"
 
 DEFAULT_CASE_RESPONSE_ARTIFACTS = (
     ("questions_summary", "Список вопросов и резюме", "Список уточняющих вопросов, краткое резюме понимания и следующий шаг."),
@@ -828,6 +865,23 @@ def ensure_core_schema() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS case_text_personalization_values (
+                id SERIAL PRIMARY KEY,
+                case_text_id INTEGER NOT NULL REFERENCES case_texts(id) ON DELETE CASCADE,
+                field_code TEXT NOT NULL,
+                field_label TEXT NOT NULL,
+                field_value_template TEXT,
+                source_type TEXT NOT NULL DEFAULT 'static',
+                is_required BOOLEAN NOT NULL DEFAULT FALSE,
+                display_order INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                UNIQUE (case_text_id, field_code)
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS case_quality_checks (
                 id SERIAL PRIMARY KEY,
                 cases_registry_id INTEGER NOT NULL REFERENCES cases_registry(id) ON DELETE CASCADE,
@@ -897,6 +951,7 @@ def ensure_core_schema() -> None:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_type_skill_evidence_skill ON case_type_skill_evidence(skill_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_type_difficulty_modifiers_passport ON case_type_difficulty_modifiers(case_type_passport_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_type_personalization_fields_passport ON case_type_personalization_fields(case_type_passport_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_case_text_personalization_values_case_text ON case_text_personalization_values(case_text_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_quality_checks_case ON case_quality_checks(cases_registry_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_methodology_change_log_case ON case_methodology_change_log(case_registry_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_methodology_change_log_created_at ON case_methodology_change_log(created_at DESC)")
@@ -1740,6 +1795,155 @@ def ensure_core_schema() -> None:
                         _normalize_registry_status(row["status"]),
                         _normalize_registry_version(row["version"]),
                         row["updated_at"],
+                    ),
+                )
+
+        case_text_rows = connection.execute(
+            """
+            SELECT
+                txt.id,
+                txt.cases_registry_id,
+                txt.personalization_variables,
+                txt.intro_context,
+                txt.facts_data,
+                txt.task_for_user,
+                txt.constraints_text,
+                cr.case_type_passport_id
+            FROM case_texts txt
+            JOIN cases_registry cr ON cr.id = txt.cases_registry_id
+            ORDER BY txt.id
+            """
+        ).fetchall()
+
+        personalization_field_rows = connection.execute(
+            """
+            SELECT field_code, field_name, source_type, is_required
+            FROM case_personalization_fields
+            """
+        ).fetchall()
+        personalization_field_map = {
+            str(row["field_code"]): {
+                "field_name": row["field_name"],
+                "source_type": row["source_type"],
+                "is_required": bool(row["is_required"]),
+            }
+            for row in personalization_field_rows
+        }
+
+        type_field_rows = connection.execute(
+            """
+            SELECT
+                ctpf.case_type_passport_id,
+                cpf.field_code,
+                cpf.field_name,
+                cpf.source_type,
+                cpf.is_required,
+                ctpf.display_order
+            FROM case_type_personalization_fields ctpf
+            JOIN case_personalization_fields cpf ON cpf.id = ctpf.personalization_field_id
+            ORDER BY ctpf.case_type_passport_id ASC, ctpf.display_order ASC, cpf.field_name ASC
+            """
+        ).fetchall()
+        type_field_map: dict[int, list[dict]] = {}
+        for row in type_field_rows:
+            type_field_map.setdefault(int(row["case_type_passport_id"]), []).append(
+                {
+                    "field_code": str(row["field_code"]),
+                    "field_name": str(row["field_name"]),
+                    "source_type": str(row["source_type"]),
+                    "is_required": bool(row["is_required"]),
+                    "display_order": int(row["display_order"]),
+                }
+            )
+
+        for row in case_text_rows:
+            extracted_codes = _extract_personalization_field_codes(
+                row["personalization_variables"],
+                row["intro_context"],
+                row["facts_data"],
+                row["task_for_user"],
+                row["constraints_text"],
+            )
+            for code in extracted_codes:
+                if code in personalization_field_map:
+                    continue
+                field_name = _humanize_personalization_field_name(code)
+                source_type = _default_personalization_source_type(code)
+                connection.execute(
+                    """
+                    INSERT INTO case_personalization_fields (field_code, field_name, description, source_type, is_required)
+                    VALUES (%s, %s, %s, %s, FALSE)
+                    ON CONFLICT (field_code) DO NOTHING
+                    """,
+                    (
+                        code,
+                        field_name,
+                        f"Автоматически добавлено из шаблонов кейсов для переменной {{{code}}}.",
+                        source_type,
+                    ),
+                )
+                personalization_field_map[code] = {
+                    "field_name": field_name,
+                    "source_type": source_type,
+                    "is_required": False,
+                }
+
+        for row in case_text_rows:
+            case_text_id = int(row["id"])
+            passport_id = int(row["case_type_passport_id"])
+            extracted_codes = _extract_personalization_field_codes(
+                row["personalization_variables"],
+                row["intro_context"],
+                row["facts_data"],
+                row["task_for_user"],
+                row["constraints_text"],
+            )
+            ordered_codes: list[str] = []
+            for item in type_field_map.get(passport_id, []):
+                code = str(item["field_code"])
+                if code in extracted_codes and code not in ordered_codes:
+                    ordered_codes.append(code)
+            for code in extracted_codes:
+                if code not in ordered_codes:
+                    ordered_codes.append(code)
+
+            connection.execute(
+                "DELETE FROM case_text_personalization_values WHERE case_text_id = %s",
+                (case_text_id,),
+            )
+            for display_order, code in enumerate(ordered_codes, start=1):
+                field_meta = personalization_field_map.get(code) or {
+                    "field_name": _humanize_personalization_field_name(code),
+                    "source_type": _default_personalization_source_type(code),
+                    "is_required": False,
+                }
+                connection.execute(
+                    """
+                    INSERT INTO case_text_personalization_values (
+                        case_text_id,
+                        field_code,
+                        field_label,
+                        field_value_template,
+                        source_type,
+                        is_required,
+                        display_order
+                    )
+                    VALUES (%s, %s, %s, NULL, %s, %s, %s)
+                    ON CONFLICT (case_text_id, field_code) DO UPDATE
+                    SET
+                        field_label = EXCLUDED.field_label,
+                        source_type = EXCLUDED.source_type,
+                        is_required = EXCLUDED.is_required,
+                        display_order = EXCLUDED.display_order,
+                        updated_at = NOW()
+                    """,
+                    (
+                        case_text_id,
+                        code,
+                        field_meta["field_name"],
+                        field_meta["source_type"],
+                        field_meta["is_required"],
+                        display_order,
                     ),
                 )
 

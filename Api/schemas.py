@@ -200,6 +200,23 @@ class AdminMethodologySkillOption(BaseModel):
     competency_name: str | None = None
 
 
+class AdminMethodologyPersonalizationOption(BaseModel):
+    field_code: str
+    field_name: str
+    description: str | None = None
+    source_type: str
+    is_required: bool = False
+
+
+class AdminMethodologyPersonalizationValueItem(BaseModel):
+    field_code: str
+    field_label: str
+    field_value_template: str | None = None
+    source_type: str
+    is_required: bool = False
+    display_order: int = 1
+
+
 class AdminMethodologyChangeLogItem(BaseModel):
     changed_at: datetime
     changed_by: str
@@ -238,6 +255,7 @@ class AdminMethodologyCaseDetailResponse(BaseModel):
     task_for_user: str | None = None
     constraints_text: str | None = None
     stakes_text: str | None = None
+    personalization_variables: str | None = None
     personalization_fields: list[str]
     required_blocks: list[str]
     red_flags: list[str]
@@ -248,6 +266,8 @@ class AdminMethodologyCaseDetailResponse(BaseModel):
     selected_skill_ids: list[int]
     role_options: list[AdminMethodologyRoleOption]
     skill_options: list[AdminMethodologySkillOption]
+    personalization_options: list[AdminMethodologyPersonalizationOption]
+    personalization_items: list[AdminMethodologyPersonalizationValueItem]
     change_log: list[AdminMethodologyChangeLogItem]
 
 
@@ -265,6 +285,8 @@ class AdminMethodologyCaseUpdateRequest(BaseModel):
     task_for_user: str | None = None
     constraints_text: str | None = None
     stakes_text: str | None = None
+    personalization_variables: str | None = None
+    personalization_items: list[AdminMethodologyPersonalizationValueItem]
     role_ids: list[int]
     skill_ids: list[int]
 
