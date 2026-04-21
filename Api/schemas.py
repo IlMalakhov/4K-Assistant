@@ -285,8 +285,6 @@ class AdminMethodologyCaseUpdateRequest(BaseModel):
     task_for_user: str | None = None
     constraints_text: str | None = None
     stakes_text: str | None = None
-    personalization_variables: str | None = None
-    personalization_items: list[AdminMethodologyPersonalizationValueItem]
     role_ids: list[int]
     skill_ids: list[int]
 
@@ -340,6 +338,38 @@ class AdminDetailedReportsResponse(BaseModel):
     items: list[AdminDetailedReportItem]
 
 
+class AdminReportCaseMessage(BaseModel):
+    role: str
+    message_text: str
+
+
+class AdminReportCaseSkillResult(BaseModel):
+    skill_name: str
+    competency_name: str
+    assessed_level_code: str | None = None
+    assessed_level_name: str | None = None
+    artifact_compliance_percent: int | None = None
+    block_coverage_percent: int | None = None
+    red_flags: list[str] = []
+    found_evidence: list[str] = []
+    evidence_excerpt: str | None = None
+
+
+class AdminReportCaseItem(BaseModel):
+    session_case_id: int
+    case_number: int
+    case_title: str
+    case_id_code: str | None = None
+    status: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    personalized_context: str | None = None
+    personalized_task: str | None = None
+    prompt_text: str | None = None
+    dialogue: list[AdminReportCaseMessage] = []
+    skill_results: list[AdminReportCaseSkillResult] = []
+
+
 class AdminReportDetailResponse(BaseModel):
     session_id: int
     user_id: int
@@ -360,6 +390,7 @@ class AdminReportDetailResponse(BaseModel):
     strengths: list[str]
     growth_areas: list[str]
     quotes: list[str]
+    case_items: list[AdminReportCaseItem] = []
 
 
 class UserDashboard(BaseModel):

@@ -119,6 +119,18 @@ def _humanize_admin_personalization_field_label(code: str) -> str:
     return normalized.replace("_", " ").strip().capitalize()
 
 
+def _extract_admin_personalization_codes(*values: str | None) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        for match in re.findall(r"\{([^{}]+)\}", str(raw_value or "")):
+            code = _normalize_admin_personalization_field_code(match)
+            if code and code not in seen:
+                seen.add(code)
+                result.append(code)
+    return result
+
+
 def _normalize_phone_digits(value: str | None) -> str:
     digits = "".join(ch for ch in str(value or "") if ch.isdigit())
     if len(digits) == 11 and digits.startswith(("7", "8")):
@@ -242,6 +254,35 @@ def _is_meaningful_quote_candidate(text: str) -> bool:
     if set(normalized.split()) == {"нет"}:
         return False
     return len(normalized) >= 12
+
+
+def _normalize_found_evidence_items(value) -> list[str]:
+    items = _parse_json_array_field(value)
+    normalized: list[str] = []
+    for item in items:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                normalized.append(text)
+            continue
+        if isinstance(item, dict):
+            parts = [
+                str(item.get("evidence_description") or "").strip(),
+                str(item.get("expected_signal") or "").strip(),
+                str(item.get("reason") or "").strip(),
+            ]
+            text = " — ".join(part for part in parts if part)
+            if not text:
+                block_code = str(item.get("related_response_block_code") or "").strip()
+                if block_code:
+                    text = f"Сигнал по блоку {block_code}"
+            if text:
+                normalized.append(text)
+            continue
+        text = str(item or "").strip()
+        if text:
+            normalized.append(text)
+    return normalized
 
 LOOKUP_USER_STEPS = [
     {"label": "Ищем профиль пользователя", "description": "Проверяем наличие пользователя по номеру телефона."},
@@ -963,6 +1004,143 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
         if len(quotes) >= 3:
             break
 
+    case_rows = connection.execute(
+        """
+        SELECT
+            sc.id AS session_case_id,
+            sc.status,
+            sc.started_at,
+            sc.completed_at AS finished_at,
+            sc.case_registry_id,
+            cr.case_id_code,
+            COALESCE(cr.title, 'Кейс без названия') AS case_title,
+            ct.intro_context,
+            ct.task_for_user,
+            ct.constraints_text,
+            sp.user_prompt,
+            sp.final_prompt_text
+        FROM session_cases sc
+        LEFT JOIN cases_registry cr ON cr.id = sc.case_registry_id
+        LEFT JOIN case_texts ct ON ct.cases_registry_id = cr.id
+        LEFT JOIN LATERAL (
+            SELECT user_prompt, final_prompt_text
+            FROM session_prompts
+            WHERE session_case_id = sc.id
+              AND prompt_type = 'case_dialog'
+            ORDER BY id DESC
+            LIMIT 1
+        ) sp ON TRUE
+        WHERE sc.session_id = %s
+        ORDER BY sc.id ASC
+        """,
+        (session_id,),
+    ).fetchall()
+
+    dialogue_rows = connection.execute(
+        """
+        SELECT
+            session_case_id,
+            role,
+            message_text
+        FROM session_case_messages
+        WHERE session_id = %s
+        ORDER BY session_case_id ASC, id ASC
+        """,
+        (session_id,),
+    ).fetchall()
+
+    analysis_rows = connection.execute(
+        """
+        SELECT
+            scsa.session_case_id,
+            s.skill_name,
+            scsa.competency_name,
+            ssa.assessed_level_code,
+            ssa.assessed_level_name,
+            scsa.artifact_compliance_percent,
+            scsa.block_coverage_percent,
+            scsa.red_flags,
+            scsa.found_evidence,
+            scsa.evidence_excerpt
+        FROM session_case_skill_analysis scsa
+        JOIN skills s ON s.id = scsa.skill_id
+        LEFT JOIN session_skill_assessments ssa
+          ON ssa.session_id = scsa.session_id
+         AND ssa.user_id = scsa.user_id
+         AND ssa.skill_id = scsa.skill_id
+        WHERE scsa.session_id = %s
+        ORDER BY scsa.session_case_id ASC, scsa.competency_name ASC, s.skill_name ASC
+        """,
+        (session_id,),
+    ).fetchall()
+
+    dialogue_by_case: dict[int, list[dict]] = {}
+    for row in dialogue_rows:
+        dialogue_by_case.setdefault(int(row["session_case_id"]), []).append(
+            {
+                "role": row["role"] or "assistant",
+                "message_text": row["message_text"] or "",
+            }
+        )
+
+    analysis_by_case: dict[int, list[dict]] = {}
+    for row in analysis_rows:
+        analysis_by_case.setdefault(int(row["session_case_id"]), []).append(
+            {
+                "skill_name": row["skill_name"] or "Навык",
+                "competency_name": row["competency_name"] or "Без категории",
+                "assessed_level_code": row["assessed_level_code"],
+                "assessed_level_name": row["assessed_level_name"],
+                "artifact_compliance_percent": row["artifact_compliance_percent"],
+                "block_coverage_percent": row["block_coverage_percent"],
+                "red_flags": _parse_json_array_field(row["red_flags"]),
+                "found_evidence": _normalize_found_evidence_items(row["found_evidence"]),
+                "evidence_excerpt": row["evidence_excerpt"],
+            }
+        )
+
+    def _extract_prompt_parts(user_prompt: str | None) -> tuple[str | None, str | None]:
+        prompt_text = str(user_prompt or "").strip()
+        if not prompt_text:
+            return None, None
+        context_match = re.search(
+            r"Personalized case context:\s*(.*?)(?:\nPersonalized task:|\Z)",
+            prompt_text,
+            flags=re.DOTALL,
+        )
+        task_match = re.search(r"Personalized task:\s*(.*)\Z", prompt_text, flags=re.DOTALL)
+        context_text = context_match.group(1).strip() if context_match else None
+        task_text = task_match.group(1).strip() if task_match else None
+        return context_text or None, task_text or None
+
+    case_items: list[dict] = []
+    for index, row in enumerate(case_rows, start=1):
+        personalized_context, personalized_task = _extract_prompt_parts(row["user_prompt"])
+        fallback_context = str(row["intro_context"] or "").strip() or None
+        fallback_task = str(row["task_for_user"] or "").strip() or None
+        constraints_text = str(row["constraints_text"] or "").strip() or None
+        final_context = personalized_context or fallback_context
+        if constraints_text and final_context:
+            final_context = final_context + "\n\nОграничения:\n" + constraints_text
+        elif constraints_text and not final_context:
+            final_context = "Ограничения:\n" + constraints_text
+        case_items.append(
+            {
+                "session_case_id": int(row["session_case_id"]),
+                "case_number": index,
+                "case_title": row["case_title"] or "Кейс без названия",
+                "case_id_code": row["case_id_code"],
+                "status": row["status"] or "unknown",
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "personalized_context": final_context,
+                "personalized_task": personalized_task or fallback_task,
+                "prompt_text": row["final_prompt_text"],
+                "dialogue": dialogue_by_case.get(int(row["session_case_id"]), []),
+                "skill_results": analysis_by_case.get(int(row["session_case_id"]), []),
+            }
+        )
+
     return AdminReportDetailResponse(
         session_id=int(session_row["session_id"]),
         user_id=int(session_row["user_id"]),
@@ -988,6 +1166,7 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
         strengths=strengths,
         growth_areas=growth_areas,
         quotes=quotes,
+        case_items=case_items,
     )
 
 
@@ -1525,20 +1704,18 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
         """,
     ).fetchall()
 
-    personalization_value_rows = connection.execute(
-        """
-        SELECT field_code, field_label, field_value_template, source_type, is_required, display_order
-        FROM case_text_personalization_values
-        WHERE case_text_id = (
-            SELECT id
-            FROM case_texts
-            WHERE cases_registry_id = %s
-            LIMIT 1
-        )
-        ORDER BY display_order ASC, field_label ASC, field_code ASC
-        """,
-        (case_row["id"],),
-    ).fetchall()
+    personalization_option_map = {
+        _normalize_admin_personalization_field_code(row["field_code"]): row
+        for row in personalization_rows
+        if _normalize_admin_personalization_field_code(row["field_code"])
+    }
+    personalization_codes = _extract_admin_personalization_codes(
+        case_row["intro_context"],
+        case_row["facts_data"],
+        case_row["task_for_user"],
+        case_row["constraints_text"],
+        case_row["personalization_variables"],
+    )
 
     skill_signal_rows = connection.execute(
         """
@@ -1680,14 +1857,26 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
         ],
         personalization_items=[
             AdminMethodologyPersonalizationValueItem(
-                field_code=str(row["field_code"]),
-                field_label=str(row["field_label"]),
-                field_value_template=row["field_value_template"],
-                source_type=str(row["source_type"]),
-                is_required=bool(row["is_required"]),
-                display_order=int(row["display_order"]),
+                field_code=code,
+                field_label=(
+                    str(personalization_option_map[code]["field_name"])
+                    if code in personalization_option_map and personalization_option_map[code]["field_name"]
+                    else _humanize_admin_personalization_field_label(code)
+                ),
+                field_value_template=None,
+                source_type=(
+                    str(personalization_option_map[code]["source_type"])
+                    if code in personalization_option_map and personalization_option_map[code]["source_type"]
+                    else "static"
+                ),
+                is_required=(
+                    bool(personalization_option_map[code]["is_required"])
+                    if code in personalization_option_map
+                    else False
+                ),
+                display_order=index,
             )
-            for row in personalization_value_rows
+            for index, code in enumerate(personalization_codes, start=1)
         ],
         change_log=[
             AdminMethodologyChangeLogItem(
@@ -2007,28 +2196,6 @@ def _upsert_admin_methodology_case(
 
     normalized_role_ids = _normalize_admin_case_role_ids(payload.role_ids, available_role_ids)
     normalized_skill_ids = _normalize_admin_case_skill_ids(payload.skill_ids, available_skill_ids)
-    normalized_personalization_items: list[dict[str, object]] = []
-    seen_personalization_codes: set[str] = set()
-    for index, item in enumerate(payload.personalization_items or [], start=1):
-        field_code = _normalize_admin_personalization_field_code(getattr(item, "field_code", ""))
-        if not field_code or field_code in seen_personalization_codes:
-            continue
-        seen_personalization_codes.add(field_code)
-        field_label = (getattr(item, "field_label", "") or "").strip() or _humanize_admin_personalization_field_label(field_code)
-        source_type = str(getattr(item, "source_type", "") or "static").strip()
-        if source_type not in ADMIN_PERSONALIZATION_SOURCE_LABELS:
-            source_type = "static"
-        field_value_template = (getattr(item, "field_value_template", "") or "").strip() or None
-        normalized_personalization_items.append(
-            {
-                "field_code": field_code,
-                "field_label": field_label,
-                "field_value_template": field_value_template,
-                "source_type": source_type,
-                "is_required": bool(getattr(item, "is_required", False)),
-                "display_order": index,
-            }
-        )
     normalized_difficulty = "hard" if str(payload.difficulty_level).strip().lower() == "hard" else "base"
     normalized_case_status = _normalize_methodology_status(payload.case_status)
     normalized_text_status = _normalize_methodology_status(payload.case_text_status)
@@ -2109,46 +2276,24 @@ def _upsert_admin_methodology_case(
         """,
         (case_registry_id,),
     ).fetchone()
-    existing_personalization_value_rows = []
-    if existing_text_row is not None:
-        existing_personalization_value_rows = connection.execute(
-            """
-            SELECT field_code, field_label, field_value_template, source_type, is_required, display_order
-            FROM case_text_personalization_values
-            WHERE case_text_id = %s
-            ORDER BY display_order ASC, field_code ASC
-            """,
-            (existing_text_row["id"],),
-        ).fetchall()
-    normalized_personalization_variables = (
-        ", ".join("{" + str(item["field_code"]) + "}" for item in normalized_personalization_items)
-        if normalized_personalization_items
-        else None
-    )
-    existing_personalization_signature = [
-        (
-            _normalize_admin_personalization_field_code(row["field_code"]),
-            (row["field_label"] or "").strip(),
-            (row["field_value_template"] or "").strip() or None,
-            (row["source_type"] or "static").strip(),
-            bool(row["is_required"]),
-            int(row["display_order"] or 0),
-        )
-        for row in existing_personalization_value_rows
-    ]
-    normalized_personalization_signature = [
-        (
-            str(item["field_code"]),
-            str(item["field_label"]),
-            item["field_value_template"],
-            str(item["source_type"]),
-            bool(item["is_required"]),
-            int(item["display_order"]),
-        )
-        for item in normalized_personalization_items
-    ]
-    personalization_items_changed = existing_personalization_signature != normalized_personalization_signature
     if existing_text_row is None:
+        normalized_intro_context = (payload.intro_context or "").strip() or ""
+        normalized_facts_data = (payload.facts_data or "").strip() or None
+        normalized_trigger_details = (payload.trigger_details or "").strip() or None
+        normalized_task_for_user = (payload.task_for_user or "").strip() or ""
+        normalized_constraints_text = (payload.constraints_text or "").strip() or None
+        normalized_stakes_text = (payload.stakes_text or "").strip() or None
+        normalized_personalization_codes = _extract_admin_personalization_codes(
+            normalized_intro_context,
+            normalized_facts_data,
+            normalized_task_for_user,
+            normalized_constraints_text,
+        )
+        normalized_personalization_variables = (
+            ", ".join("{" + code + "}" for code in normalized_personalization_codes)
+            if normalized_personalization_codes
+            else None
+        )
         inserted_text_row = connection.execute(
             """
             INSERT INTO case_texts (
@@ -2170,13 +2315,13 @@ def _upsert_admin_methodology_case(
             (
                 f"TXT-{case_id_code}",
                 case_registry_id,
-                (payload.intro_context or "").strip() or "",
-                (payload.facts_data or "").strip() or None,
-                (payload.trigger_details or "").strip() or None,
-                (payload.task_for_user or "").strip() or "",
-                (payload.constraints_text or "").strip() or None,
-                (payload.stakes_text or "").strip() or None,
-                (payload.personalization_variables or "").strip() or None,
+                normalized_intro_context,
+                normalized_facts_data,
+                normalized_trigger_details,
+                normalized_task_for_user,
+                normalized_constraints_text,
+                normalized_stakes_text,
+                normalized_personalization_variables,
                 normalized_text_status,
             ),
         ).fetchone()
@@ -2190,6 +2335,17 @@ def _upsert_admin_methodology_case(
         normalized_task_for_user = (payload.task_for_user or "").strip() or ""
         normalized_constraints_text = (payload.constraints_text or "").strip() or None
         normalized_stakes_text = (payload.stakes_text or "").strip() or None
+        normalized_personalization_codes = _extract_admin_personalization_codes(
+            normalized_intro_context,
+            normalized_facts_data,
+            normalized_task_for_user,
+            normalized_constraints_text,
+        )
+        normalized_personalization_variables = (
+            ", ".join("{" + code + "}" for code in normalized_personalization_codes)
+            if normalized_personalization_codes
+            else None
+        )
         text_changed = (
             (existing_text_row["intro_context"] or "") != normalized_intro_context
             or (existing_text_row["facts_data"] if existing_text_row["facts_data"] is not None else None) != normalized_facts_data
@@ -2199,7 +2355,6 @@ def _upsert_admin_methodology_case(
             or (existing_text_row["stakes_text"] if existing_text_row["stakes_text"] is not None else None) != normalized_stakes_text
             or (existing_text_row["personalization_variables"] if existing_text_row["personalization_variables"] is not None else None) != normalized_personalization_variables
             or (existing_text_row["status"] or "draft") != normalized_text_status
-            or personalization_items_changed
         )
         connection.execute(
             """
@@ -2231,30 +2386,6 @@ def _upsert_admin_methodology_case(
             ),
         )
     connection.execute("DELETE FROM case_text_personalization_values WHERE case_text_id = %s", (case_text_id,))
-    for item in normalized_personalization_items:
-        connection.execute(
-            """
-            INSERT INTO case_text_personalization_values (
-                case_text_id,
-                field_code,
-                field_label,
-                field_value_template,
-                source_type,
-                is_required,
-                display_order
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                case_text_id,
-                item["field_code"],
-                item["field_label"],
-                item["field_value_template"],
-                item["source_type"],
-                item["is_required"],
-                item["display_order"],
-            ),
-        )
 
     connection.execute("DELETE FROM case_registry_roles WHERE cases_registry_id = %s", (case_registry_id,))
     for role_id in normalized_role_ids:
@@ -2293,8 +2424,8 @@ def _upsert_admin_methodology_case(
         change_summaries.append(("case_roles", "updated", "Обновлен набор ролей кейса."))
     if skill_mapping_changed:
         change_summaries.append(("case_skills", "updated", "Обновлен набор навыков кейса."))
-    if personalization_items_changed:
-        change_summaries.append(("case_personalization", "updated", "Обновлен набор переменных персонализации кейса."))
+    if text_changed:
+        change_summaries.append(("case_personalization", "updated", "Список переменных персонализации пересчитан из текста шаблона."))
     if normalized_case_status == "retired" or normalized_text_status == "retired" or normalized_passport_status == "retired":
         change_summaries.append(("lifecycle", "archived", "Кейс или связанные методические сущности переведены в архивный статус."))
     for entity_scope, action, summary in change_summaries:

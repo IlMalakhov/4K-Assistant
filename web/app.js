@@ -1,4 +1,4 @@
-const APP_RELEASE = '1';
+const APP_RELEASE = '1.1';
 
 const state = {
   sessionId: null,
@@ -364,6 +364,7 @@ const adminReportDetailBasis = document.getElementById('admin-report-detail-basi
 const adminReportDetailStrengths = document.getElementById('admin-report-detail-strengths');
 const adminReportDetailGrowth = document.getElementById('admin-report-detail-growth');
 const adminReportDetailQuotes = document.getElementById('admin-report-detail-quotes');
+const adminReportDetailCases = document.getElementById('admin-report-detail-cases');
 const welcomeProfileButton = document.getElementById('welcome-profile-button');
 const startFirstAssessmentButton = document.getElementById('start-first-assessment');
 const libraryStartButton = document.getElementById('library-start-button');
@@ -1538,20 +1539,6 @@ const getAdminMethodologyDraftFromDetail = (detail) => ({
   task_for_user: detail?.task_for_user || '',
   constraints_text: detail?.constraints_text || '',
   stakes_text: detail?.stakes_text || '',
-  personalization_variables: detail?.personalization_variables || '',
-  personalization_items: Array.isArray(detail?.personalization_items)
-    ? detail.personalization_items.map((item, index) => ({
-      ...(buildAdminMethodologyPersonalizationDefaults(normalizePersonalizationCode(item.field_code)) || {}),
-      field_code: normalizePersonalizationCode(item.field_code),
-      field_label: item.field_label || '',
-      field_value_template: item.source_type === 'from_user_profile'
-        ? (item.field_value_template || '')
-        : (item.field_value_template || buildAdminMethodologyPersonalizationDefaults(normalizePersonalizationCode(item.field_code)).value || ''),
-      source_type: item.source_type || 'static',
-      is_required: Boolean(item.is_required),
-      display_order: Number(item.display_order) || index + 1,
-    }))
-    : [],
   role_ids: Array.isArray(detail?.selected_role_ids) ? [...detail.selected_role_ids] : [],
   skill_ids: Array.isArray(detail?.selected_skill_ids) ? [...detail.selected_skill_ids] : [],
 });
@@ -1663,30 +1650,6 @@ const collectAdminMethodologyScenarioText = (source) => {
 };
 
 const collectAdminMethodologyPersonalizationRows = (detail, scenarioText) => {
-  const sourceItems = Array.isArray(detail?.personalization_items) ? detail.personalization_items : [];
-  if (sourceItems.length) {
-    return sourceItems.map((item) => {
-      const code = normalizePersonalizationCode(item.field_code);
-      const fallback = buildAdminMethodologyPersonalizationDefaults(code);
-      const sourceType = item.source_type || 'static';
-      const rawValue = sourceType === 'from_user_profile'
-        ? (item.field_value_template || fallback.value)
-        : (item.field_value_template || fallback.value || '');
-      const resolvedValue = code === 'роль_кратко' || code === 'role'
-        ? expandAdminMethodologyRoleLabel(rawValue)
-        : rawValue;
-      return {
-        code,
-        label: item.field_label || code,
-        value: resolvedValue,
-        source: sourceType === 'from_user_profile'
-          ? 'из профиля пользователя'
-          : sourceType === 'hybrid'
-            ? 'смешанный источник'
-            : 'задано в шаблоне кейса',
-      };
-    });
-  }
   const fromText = extractAdminMethodologyPlaceholders(scenarioText);
   const fromStored = extractAdminMethodologyPlaceholders(detail?.personalization_variables || '');
   const fromDetail = Array.isArray(detail?.personalization_fields)
@@ -1695,14 +1658,14 @@ const collectAdminMethodologyPersonalizationRows = (detail, scenarioText) => {
   const codes = Array.from(new Set([...fromText, ...fromStored, ...fromDetail])).filter(Boolean);
   return codes.map((code) => {
     const fallback = buildAdminMethodologyPersonalizationDefaults(code);
-    const resolvedValue = code === 'роль_кратко' || code === 'role'
-      ? expandAdminMethodologyRoleLabel(fallback.value)
-      : fallback.value;
+    const source = fallback.source;
     return {
       code,
       label: code,
-      value: resolvedValue,
-      source: fallback.source,
+      value: source === 'из профиля пользователя'
+        ? 'Сформируется из профиля пользователя'
+        : 'Сформируется автоматически по шаблону кейса',
+      source,
     };
   });
 };
@@ -1744,17 +1707,7 @@ const renderAdminMethodologyPersonalizationTable = (rows) => {
     )).join('');
 };
 
-const syncAdminMethodologyPersonalizationVariables = () => {
-  if (!state.adminMethodologyDraft) {
-    return;
-  }
-  const items = Array.isArray(state.adminMethodologyDraft.personalization_items)
-    ? state.adminMethodologyDraft.personalization_items
-    : [];
-  state.adminMethodologyDraft.personalization_variables = items.length
-    ? items.map((item) => '{' + normalizePersonalizationCode(item.field_code) + '}').join(', ')
-    : '';
-};
+const syncAdminMethodologyPersonalizationVariables = () => {};
 
 const getAdminMethodologyPersonalizationOptionMap = (detail) => {
   const map = new Map();
@@ -1947,125 +1900,6 @@ const insertAdminMethodologyPlaceholder = (fieldCode) => {
   refreshAdminMethodologyScenarioSection(state.adminMethodologyDetail, state.adminMethodologyDraft);
 };
 
-const renderAdminMethodologyPersonalizationEditor = (detail, source) => {
-  if (!adminMethodologyDetailPersonalizationTable) {
-    return;
-  }
-  const items = ensureAdminMethodologyPersonalizationDraft(detail);
-  const optionMap = getAdminMethodologyPersonalizationOptionMap(detail);
-  adminMethodologyDetailPersonalizationTable.innerHTML = '';
-
-  const help = document.createElement('div');
-  help.className = 'admin-methodology-personalization-help';
-  help.textContent = 'Добавляйте переменные из общего списка, задавайте им значения и вставляйте плейсхолдер в текст шаблона одной кнопкой.';
-  adminMethodologyDetailPersonalizationTable.appendChild(help);
-
-  const table = document.createElement('div');
-  table.className = 'admin-methodology-personalization-editor-table';
-  table.innerHTML =
-    '<div class="admin-methodology-personalization-editor-row admin-methodology-personalization-editor-head">' +
-      '<span>Переменная</span>' +
-      '<span>Значение</span>' +
-      '<span>Источник</span>' +
-      '<span></span>' +
-    '</div>';
-
-  items.forEach((item, index) => {
-    const row = document.createElement('div');
-    row.className = 'admin-methodology-personalization-editor-row';
-
-    const fieldCell = document.createElement('div');
-    const fieldSelect = document.createElement('select');
-    fieldSelect.className = 'admin-methodology-input';
-    const allCodes = Array.from(new Set([
-      ...Array.from(optionMap.keys()),
-      normalizePersonalizationCode(item.field_code),
-    ].filter(Boolean)));
-    allCodes.forEach((code) => {
-      const option = document.createElement('option');
-      option.value = code;
-      option.textContent = '{' + code + '}';
-      option.selected = code === normalizePersonalizationCode(item.field_code);
-      fieldSelect.appendChild(option);
-    });
-    fieldSelect.addEventListener('input', (event) => {
-      const nextCode = normalizePersonalizationCode(event.target.value);
-      const option = optionMap.get(nextCode);
-      updateAdminMethodologyPersonalizationItem(index, {
-        field_code: nextCode,
-        field_label: option?.field_name || item.field_label || nextCode,
-        source_type: option?.source_type || item.source_type || 'static',
-      });
-    });
-    fieldCell.appendChild(fieldSelect);
-    row.appendChild(fieldCell);
-
-    const valueCell = document.createElement('div');
-    if ((item.source_type || 'static') === 'from_user_profile') {
-      const profileHint = document.createElement('div');
-      profileHint.className = 'admin-methodology-personalization-profile-hint';
-      profileHint.textContent = 'Значение подставляется из профиля пользователя';
-      valueCell.appendChild(profileHint);
-    } else {
-      const fallback = buildAdminMethodologyPersonalizationDefaults(item.field_code);
-      const valueInput = document.createElement('input');
-      valueInput.type = 'text';
-      valueInput.className = 'admin-methodology-input';
-      valueInput.placeholder = '';
-      valueInput.value = item.field_value_template || fallback.value || '';
-      valueInput.addEventListener('input', (event) => {
-        updateAdminMethodologyPersonalizationItem(index, {
-          field_value_template: event.target.value,
-        });
-      });
-      valueCell.appendChild(valueInput);
-    }
-    row.appendChild(valueCell);
-
-    const sourceCell = document.createElement('div');
-    const sourceSelect = document.createElement('select');
-    sourceSelect.className = 'admin-methodology-input';
-    [
-      { value: 'static', label: 'задано в шаблоне кейса' },
-      { value: 'from_user_profile', label: 'из профиля пользователя' },
-      { value: 'hybrid', label: 'смешанный источник' },
-    ].forEach((entry) => {
-      const option = document.createElement('option');
-      option.value = entry.value;
-      option.textContent = entry.label;
-      option.selected = entry.value === (item.source_type || 'static');
-      sourceSelect.appendChild(option);
-    });
-    sourceSelect.addEventListener('input', (event) => {
-      updateAdminMethodologyPersonalizationItem(index, {
-        source_type: event.target.value,
-      });
-    });
-    sourceCell.appendChild(sourceSelect);
-    row.appendChild(sourceCell);
-
-    const actionCell = document.createElement('div');
-    actionCell.className = 'admin-methodology-personalization-actions';
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    removeButton.className = 'admin-methodology-icon-button';
-    removeButton.title = 'Удалить переменную';
-    removeButton.setAttribute('aria-label', 'Удалить переменную');
-    removeButton.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-        '<path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v9H7V9Zm4 0h2v9h-2V9Zm4 0h2v9h-2V9ZM6 7h12l-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7Z"/>' +
-      '</svg>';
-    removeButton.addEventListener('click', () => {
-      removeAdminMethodologyPersonalizationItem(index);
-    });
-    actionCell.appendChild(removeButton);
-    row.appendChild(actionCell);
-
-    table.appendChild(row);
-  });
-
-  adminMethodologyDetailPersonalizationTable.appendChild(table);
-};
 
 const refreshAdminMethodologyScenarioSection = (detail, source) => {
   const scenarioText = collectAdminMethodologyScenarioText(source);
@@ -2076,11 +1910,7 @@ const refreshAdminMethodologyScenarioSection = (detail, source) => {
       ? '<div class="admin-methodology-edit-hint">Редактируйте текст шаблона в полях ниже. Здесь показывается только компактная область просмотра.</div>'
       : buildAdminMethodologyScenarioMarkup(scenarioText, personalizationRows, scenarioMode);
   }
-  if (state.adminMethodologyEditMode) {
-    renderAdminMethodologyPersonalizationEditor(detail, source);
-  } else {
-    renderAdminMethodologyPersonalizationTable(personalizationRows);
-  }
+  renderAdminMethodologyPersonalizationTable(personalizationRows);
 };
 
 const renderAdminMethodologyEditorField = (node, kind, config) => {
@@ -2219,21 +2049,6 @@ const renderAdminMethodologyDetail = () => {
     adminMethodologyScenarioPreview.classList.toggle('active', scenarioMode === 'preview');
   }
   refreshAdminMethodologyScenarioSection(detail, scenarioSource);
-  const personalizationBoxHead = adminMethodologyDetailPersonalizationTable?.parentElement?.querySelector('.admin-methodology-personalization-box-head');
-  if (personalizationBoxHead) {
-    const existingAction = personalizationBoxHead.querySelector('.admin-methodology-personalization-add');
-    if (existingAction) {
-      existingAction.remove();
-    }
-    if (isEditing) {
-      const addButton = document.createElement('button');
-      addButton.type = 'button';
-      addButton.className = 'ghost-button compact-ghost admin-methodology-personalization-add';
-      addButton.textContent = 'Добавить переменную';
-      addButton.addEventListener('click', addAdminMethodologyPersonalizationItem);
-      personalizationBoxHead.appendChild(addButton);
-    }
-  }
 
   if (isEditing) {
     renderAdminMethodologyEditorField(adminMethodologyDetailCaseName, 'text', {
@@ -3206,6 +3021,9 @@ const renderAdminReportDetail = () => {
     adminReportDetailStrengths.innerHTML = '<li>Данные будут доступны после появления результатов оценки.</li>';
     adminReportDetailGrowth.innerHTML = '<li>Зоны роста будут определены после накопления результатов.</li>';
     adminReportDetailQuotes.innerHTML = '';
+    if (adminReportDetailCases) {
+      adminReportDetailCases.innerHTML = '';
+    }
     return;
   }
 
@@ -3278,9 +3096,130 @@ const renderAdminReportDetail = () => {
   (detail.quotes && detail.quotes.length ? detail.quotes : []).forEach((text) => {
     const card = document.createElement('article');
     card.className = 'admin-detail-quote-card';
-    card.innerHTML = '<p>' + text + '</p>';
+    card.innerHTML = '<p>' + escapeHtml(text) + '</p>';
     adminReportDetailQuotes.appendChild(card);
   });
+
+  if (adminReportDetailCases) {
+    const caseItems = Array.isArray(detail.case_items) ? detail.case_items : [];
+    adminReportDetailCases.innerHTML = '';
+    if (!caseItems.length) {
+      adminReportDetailCases.innerHTML = '<p class="report-empty-state">Для этой сессии пока не сохранены кейсы или история диалога.</p>';
+    } else {
+      const renderCaseTextBlock = (label, text) => {
+        const normalized = String(text || '').trim();
+        if (!normalized) {
+          return '';
+        }
+        return '<div class="admin-detail-case-text-block">' +
+          '<strong>' + escapeHtml(label) + '</strong>' +
+          '<p>' + escapeHtml(normalized) + '</p>' +
+        '</div>';
+      };
+
+      caseItems.forEach((item) => {
+        const statusMap = {
+          selected: 'Выбран',
+          shown: 'Показан',
+          answered: 'Отвечен',
+          assessed: 'Оценен',
+          completed: 'Завершен',
+        };
+        const startedAt = item.started_at
+          ? new Date(item.started_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : 'Нет данных';
+        const finishedAt = item.finished_at
+          ? new Date(item.finished_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : 'Нет данных';
+        const textBlocks = [
+          renderCaseTextBlock('Контекст', item.personalized_context),
+          renderCaseTextBlock('Задача', item.personalized_task),
+        ].filter(Boolean).join('');
+        const promptBlock = item.prompt_text
+          ? '<details class="admin-detail-case-prompt-details">' +
+              '<summary>Показать полный промпт</summary>' +
+              '<pre>' + escapeHtml(item.prompt_text) + '</pre>' +
+            '</details>'
+          : '';
+        const details = document.createElement('details');
+        details.className = 'admin-detail-case-item';
+        details.innerHTML =
+          '<summary class="admin-detail-case-summary">' +
+            '<div class="admin-detail-case-summary-main">' +
+              '<span class="admin-detail-case-order">Кейс ' + escapeHtml(item.case_number) + '</span>' +
+              '<strong>' + escapeHtml(item.case_title || 'Кейс без названия') + '</strong>' +
+              '<span class="admin-detail-case-code">' + escapeHtml(item.case_id_code || 'Без ID') + '</span>' +
+            '</div>' +
+            '<div class="admin-detail-case-summary-meta">' +
+              '<span>' + escapeHtml(statusMap[item.status] || item.status || 'Неизвестно') + '</span>' +
+              '<span>' + escapeHtml((item.dialogue || []).length) + ' сообщений</span>' +
+              '<span>' + escapeHtml((item.skill_results || []).length) + ' навыков</span>' +
+            '</div>' +
+          '</summary>' +
+          '<div class="admin-detail-case-body">' +
+            '<div class="admin-detail-case-columns">' +
+              '<section class="admin-detail-case-panel">' +
+                '<details class="admin-detail-case-section" open>' +
+                  '<summary class="admin-detail-case-section-summary">Текст кейса</summary>' +
+                  '<div class="admin-detail-case-section-body">' +
+                    '<div class="admin-detail-case-meta"><span>Начало: ' + escapeHtml(startedAt) + '</span><span>Завершение: ' + escapeHtml(finishedAt) + '</span></div>' +
+                    '<div class="admin-detail-case-text-stack">' +
+                      (textBlocks || '<p class="report-empty-state">Текст кейса в этой сессии не сохранен.</p>') +
+                    '</div>' +
+                    promptBlock +
+                  '</div>' +
+                '</details>' +
+              '</section>' +
+              '<section class="admin-detail-case-panel">' +
+                '<details class="admin-detail-case-section" open>' +
+                  '<summary class="admin-detail-case-section-summary">Диалог по кейсу</summary>' +
+                  '<div class="admin-detail-case-section-body">' +
+                    '<div class="admin-detail-case-dialogue">' +
+                      ((item.dialogue || []).length
+                        ? item.dialogue.map((message) =>
+                            '<article class="admin-detail-case-message ' + (message.role === 'user' ? 'is-user' : 'is-assistant') + '">' +
+                              '<span class="admin-detail-case-message-role">' + escapeHtml(message.role === 'user' ? 'Пользователь' : 'Ассистент') + '</span>' +
+                              '<p>' + escapeHtml(message.message_text || '') + '</p>' +
+                            '</article>'
+                          ).join('')
+                        : '<p class="report-empty-state">Диалог по кейсу не найден.</p>') +
+                    '</div>' +
+                  '</div>' +
+                '</details>' +
+              '</section>' +
+            '</div>' +
+            '<section class="admin-detail-case-panel">' +
+              '<h4>Результат по кейсу</h4>' +
+              '<div class="admin-detail-case-skills">' +
+                ((item.skill_results || []).length
+                  ? item.skill_results.map((skill) =>
+                      '<article class="admin-detail-case-skill-card">' +
+                        '<div class="admin-detail-case-skill-head">' +
+                          '<strong>' + escapeHtml(skill.skill_name || 'Навык') + '</strong>' +
+                          '<span>' + escapeHtml(skill.assessed_level_name || skill.assessed_level_code || 'Без уровня') + '</span>' +
+                        '</div>' +
+                        '<div class="admin-detail-case-skill-meta">' +
+                          '<span>' + escapeHtml(skill.competency_name || 'Без категории') + '</span>' +
+                          '<span>Artifact: ' + escapeHtml(typeof skill.artifact_compliance_percent === 'number' ? skill.artifact_compliance_percent + '%' : '—') + '</span>' +
+                          '<span>Blocks: ' + escapeHtml(typeof skill.block_coverage_percent === 'number' ? skill.block_coverage_percent + '%' : '—') + '</span>' +
+                        '</div>' +
+                        '<div class="admin-detail-case-tags">' +
+                          ((skill.red_flags || []).map((flag) => '<span class="admin-detail-case-tag danger">' + escapeHtml(flag) + '</span>').join('') || '<span class="admin-detail-case-tag muted">Без red flags</span>') +
+                          ((skill.found_evidence || []).map((itemText) => '<span class="admin-detail-case-tag">' + escapeHtml(itemText) + '</span>').join('')) +
+                        '</div>' +
+                        (skill.evidence_excerpt
+                          ? '<p class="admin-detail-case-evidence">' + escapeHtml(skill.evidence_excerpt) + '</p>'
+                          : '') +
+                      '</article>'
+                    ).join('')
+                  : '<p class="report-empty-state">Локальная аналитика по кейсу не найдена.</p>') +
+              '</div>' +
+            '</section>' +
+          '</div>';
+        adminReportDetailCases.appendChild(details);
+      });
+    }
+  }
 
   if (adminReportDetailPdfButton) {
     adminReportDetailPdfButton.disabled = !(detail.user_id && detail.session_id);
@@ -3337,6 +3276,9 @@ const openAdminReportDetail = async (sessionId) => {
   adminReportDetailStrengths.innerHTML = '';
   adminReportDetailGrowth.innerHTML = '';
   adminReportDetailQuotes.innerHTML = '';
+  if (adminReportDetailCases) {
+    adminReportDetailCases.innerHTML = '';
+  }
   try {
     await loadAdminReportDetail(sessionId);
     renderAdminReportDetail();

@@ -483,10 +483,59 @@ class DeepSeekClient:
             user_profile=user_profile,
             planned_total_duration_min=planned_total_duration_min,
         )
-        # Персонализация кейсов должна оставаться управляемой и воспроизводимой.
-        # Значения переменных строятся локально из профиля пользователя и ролевого
-        # контекста, а не генерируются LLM на лету.
-        return fallback
+        if not self.enabled or not placeholders:
+            return fallback
+
+        profile_context = user_profile or {}
+        prompt = (
+            "Сформируй значения переменных персонализации для кейса.\n"
+            "Нужно вернуть только JSON-объект вида "
+            '{"values":{"placeholder":"value"}} без пояснений.\n'
+            "Правила:\n"
+            "1. Используй только перечисленные переменные.\n"
+            "2. Опирайся на шаблон кейса и профиль пользователя.\n"
+            "3. Значения должны быть реалистичными, короткими и пригодными для прямой подстановки в текст.\n"
+            "4. Не добавляй фигурные скобки в ключи.\n"
+            "5. Если значение нельзя уверенно вывести, используй наиболее уместный вариант из контекста кейса и профиля.\n\n"
+            f"Пользователь: {full_name or 'не указано'}\n"
+            f"Должность: {position or 'не указана'}\n"
+            f"Обязанности: {duties or 'не указаны'}\n"
+            f"Индустрия: {company_industry or 'не указана'}\n"
+            f"Роль: {role_name or 'не определена'}\n"
+            f"Профиль пользователя: {json.dumps(profile_context, ensure_ascii=False)}\n\n"
+            f"Кейс: {case_title}\n"
+            f"Контекст кейса: {case_context or 'не указан'}\n"
+            f"Задача кейса: {case_task or 'не указана'}\n"
+            f"Переменные: {json.dumps(placeholders, ensure_ascii=False)}\n"
+            f"Базовые fallback-значения: {json.dumps(fallback, ensure_ascii=False)}"
+        )
+        try:
+            raw = self._post_chat(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Ты заполняешь переменные персонализации кейса для HR-assessment системы. "
+                            "Возвращай только JSON без markdown и комментариев."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+            )
+            parsed = self._parse_json(raw)
+            values = parsed.get("values") if isinstance(parsed, dict) else None
+            if not isinstance(values, dict):
+                return fallback
+            result: dict[str, str] = {}
+            for placeholder in placeholders:
+                generated = values.get(placeholder)
+                if generated is None:
+                    generated = fallback.get(placeholder, "")
+                result[placeholder] = self._sanitize_personalization_value(str(generated))
+            return result
+        except Exception:
+            return fallback
 
     def apply_personalization(self, template: str | None, values: dict[str, str]) -> str:
         if not template:
