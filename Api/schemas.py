@@ -353,6 +353,10 @@ class AdminReportDetailResponse(BaseModel):
     mbti_type: str | None = None
     mbti_summary: str | None = None
     mbti_axes: list[dict[str, str | int]]
+    insight_title: str | None = None
+    insight_text: str | None = None
+    basis_items: list[str] = []
+    response_pattern: str | None = None
     strengths: list[str]
     growth_areas: list[str]
     quotes: list[str]
@@ -362,6 +366,7 @@ class UserDashboard(BaseModel):
     greeting_name: str
     active_assessment: AssessmentCard
     available_assessments: list[AvailableAssessment]
+    reports_total: int = 0
     reports: list[AssessmentReport]
 
 

@@ -232,6 +232,17 @@ def _build_report_interpretation_payload(skill_rows: list[dict], competency_aver
         "response_pattern": response_pattern,
     }
 
+
+def _is_meaningful_quote_candidate(text: str) -> bool:
+    normalized = " ".join((text or "").split()).strip().lower()
+    if not normalized:
+        return False
+    if normalized in {"нет", "none", "n/a", "na", "-", "—"}:
+        return False
+    if set(normalized.split()) == {"нет"}:
+        return False
+    return len(normalized) >= 12
+
 LOOKUP_USER_STEPS = [
     {"label": "Ищем профиль пользователя", "description": "Проверяем наличие пользователя по номеру телефона."},
     {"label": "Определяем сценарий входа", "description": "Понимаем, нужно создать профиль или открыть актуализацию."},
@@ -301,6 +312,16 @@ def _build_dashboard(connection, user: UserResponse) -> UserDashboard:
         FROM user_assessment_progress
         WHERE user_id = %s
           AND assessment_code = 'competencies_4k'
+        """,
+        (user.id,),
+    ).fetchone()
+
+    reports_total_row = connection.execute(
+        """
+        SELECT COUNT(*)::int AS reports_total
+        FROM user_sessions us
+        WHERE us.user_id = %s
+          AND us.assessment_code = 'competencies_4k'
         """,
         (user.id,),
     ).fetchone()
@@ -422,6 +443,7 @@ def _build_dashboard(connection, user: UserResponse) -> UserDashboard:
             button_label="Пройти ассессмент снова" if is_complete else "Продолжить",
         ),
         available_assessments=available_assessments,
+        reports_total=int(reports_total_row["reports_total"]) if reports_total_row and reports_total_row["reports_total"] is not None else 0,
         reports=reports,
     )
 
@@ -908,27 +930,38 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
     score_percent = round(sum(score_values) / len(score_values)) if score_values else None
     interpretation = _build_report_interpretation_payload(skill_rows, competency_average)
 
-    strengths = [
-        interpretation["insight_text"],
-        "Основание вывода: " + "; ".join(interpretation["basis_items"]),
-    ]
+    strongest_item, has_confident_strongest = _select_strongest_competency(competency_average)
+    strengths: list[str] = []
+    if strongest_item and has_confident_strongest:
+        strengths.append(
+            f"Наиболее устойчиво проявлена компетенция «{strongest_item['name']}»: средний показатель составил {strongest_item['value']}%."
+        )
+    if interpretation.get("response_pattern"):
+        strengths.append(str(interpretation["response_pattern"]))
+    if not strengths:
+        strengths = ["Выраженная сильная сторона пока не выделена: для этого нужны более устойчивые сигналы по сессии."]
     growth_areas = interpretation["growth_areas"]
 
     quotes: list[str] = []
+    seen_quotes: set[str] = set()
     for row in skill_rows:
         excerpt = (row["evidence_excerpt"] or "").strip()
+        candidate = ""
         if excerpt:
-          quotes.append(excerpt)
+            candidate = excerpt
         elif row["rationale"]:
-          quotes.append(str(row["rationale"]).strip())
+            candidate = str(row["rationale"]).strip()
+        normalized_candidate = " ".join(candidate.split()).lower()
+        if (
+            candidate
+            and normalized_candidate
+            and normalized_candidate not in seen_quotes
+            and _is_meaningful_quote_candidate(candidate)
+        ):
+            seen_quotes.add(normalized_candidate)
+            quotes.append(candidate)
         if len(quotes) >= 3:
             break
-    if not quotes:
-        quotes = [
-            "Цитаты из оценки пока недоступны. Для этого отчета не найдено сохраненных фрагментов ответа.",
-            "После появления evidence excerpts система покажет фразы пользователя, повлиявшие на итоговую оценку.",
-            "На данном этапе можно использовать общие рекомендации и профиль компетенций.",
-        ]
 
     return AdminReportDetailResponse(
         session_id=int(session_row["session_id"]),
@@ -948,6 +981,10 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
             {"left": "Мышление", "right": "Чувство", "value": 0},
             {"left": "Суждение", "right": "Восприятие", "value": 0},
         ],
+        insight_title=interpretation["insight_title"],
+        insight_text=interpretation["insight_text"],
+        basis_items=interpretation["basis_items"],
+        response_pattern=interpretation["response_pattern"],
         strengths=strengths,
         growth_areas=growth_areas,
         quotes=quotes,

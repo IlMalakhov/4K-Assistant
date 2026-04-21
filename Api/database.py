@@ -939,6 +939,27 @@ def ensure_core_schema() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS system_logs (
+                id BIGSERIAL PRIMARY KEY,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                level TEXT NOT NULL,
+                logger_name TEXT NOT NULL,
+                message TEXT NOT NULL,
+                event_type TEXT NOT NULL DEFAULT 'application',
+                source TEXT NOT NULL DEFAULT 'backend',
+                request_method TEXT,
+                request_path TEXT,
+                status_code INTEGER,
+                user_id INTEGER,
+                session_id INTEGER,
+                client_ip TEXT,
+                payload_json TEXT,
+                traceback_text TEXT
+            )
+            """
+        )
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_type_passports_status ON case_type_passports(status)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_cases_registry_type ON cases_registry(case_type_passport_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_cases_registry_status ON cases_registry(status)")
@@ -958,6 +979,10 @@ def ensure_core_schema() -> None:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_session_case_skill_analysis_session ON session_case_skill_analysis(session_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_session_case_skill_analysis_case ON session_case_skill_analysis(session_case_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_session_case_skill_analysis_skill ON session_case_skill_analysis(skill_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at DESC)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_level ON system_logs(level)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_event_type ON system_logs(event_type)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_request_path ON system_logs(request_path)")
         connection.execute(
             """
             ALTER TABLE IF EXISTS session_case_skill_analysis
@@ -1310,21 +1335,7 @@ def ensure_core_schema() -> None:
                     version
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ready', 1)
-                ON CONFLICT (type_code) DO UPDATE
-                SET
-                    type_name = EXCLUDED.type_name,
-                    type_category = EXCLUDED.type_category,
-                    description = EXCLUDED.description,
-                    artifact_id = EXCLUDED.artifact_id,
-                    base_structure_description = EXCLUDED.base_structure_description,
-                    success_criteria = EXCLUDED.success_criteria,
-                    recommended_time_min = EXCLUDED.recommended_time_min,
-                    recommended_time_max = EXCLUDED.recommended_time_max,
-                    allowed_role_linear = EXCLUDED.allowed_role_linear,
-                    allowed_role_manager = EXCLUDED.allowed_role_manager,
-                    allowed_role_leader = EXCLUDED.allowed_role_leader,
-                    status = EXCLUDED.status,
-                    updated_at = NOW()
+                ON CONFLICT (type_code) DO NOTHING
                 RETURNING id
                 """,
                 (
@@ -1342,65 +1353,76 @@ def ensure_core_schema() -> None:
                     passport["allowed_role_leader"],
                 ),
             ).fetchone()
-            passport_id = int(passport_row["id"])
+            if passport_row:
+                passport_id = int(passport_row["id"])
+                should_seed_passport_details = True
+            else:
+                passport_id = int(
+                    connection.execute(
+                        "SELECT id FROM case_type_passports WHERE type_code = %s",
+                        (passport["type_code"],),
+                    ).fetchone()["id"]
+                )
+                should_seed_passport_details = False
 
-            connection.execute(
-                """
-                DELETE FROM case_required_response_blocks
-                WHERE case_type_passport_id = %s
-                """,
-                (passport_id,),
-            )
-            for block_code, block_name, block_description, display_order, is_required in passport["response_blocks"]:
+            if should_seed_passport_details:
                 connection.execute(
                     """
-                    INSERT INTO case_required_response_blocks (
-                        case_type_passport_id,
-                        block_code,
-                        block_name,
-                        block_description,
-                        display_order,
-                        is_required
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (case_type_passport_id, block_code) DO UPDATE
-                    SET
-                        block_name = EXCLUDED.block_name,
-                        block_description = EXCLUDED.block_description,
-                        display_order = EXCLUDED.display_order,
-                        is_required = EXCLUDED.is_required
+                    DELETE FROM case_required_response_blocks
+                    WHERE case_type_passport_id = %s
                     """,
-                    (passport_id, block_code, block_name, block_description, display_order, is_required),
+                    (passport_id,),
                 )
+                for block_code, block_name, block_description, display_order, is_required in passport["response_blocks"]:
+                    connection.execute(
+                        """
+                        INSERT INTO case_required_response_blocks (
+                            case_type_passport_id,
+                            block_code,
+                            block_name,
+                            block_description,
+                            display_order,
+                            is_required
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (case_type_passport_id, block_code) DO UPDATE
+                        SET
+                            block_name = EXCLUDED.block_name,
+                            block_description = EXCLUDED.block_description,
+                            display_order = EXCLUDED.display_order,
+                            is_required = EXCLUDED.is_required
+                        """,
+                        (passport_id, block_code, block_name, block_description, display_order, is_required),
+                    )
 
-            connection.execute(
-                """
-                DELETE FROM case_type_red_flags
-                WHERE case_type_passport_id = %s
-                """,
-                (passport_id,),
-            )
-            for flag_code, flag_name, flag_description, severity, is_active in passport["red_flags"]:
                 connection.execute(
                     """
-                    INSERT INTO case_type_red_flags (
-                        case_type_passport_id,
-                        flag_code,
-                        flag_name,
-                        flag_description,
-                        severity,
-                        is_active
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (case_type_passport_id, flag_code) DO UPDATE
-                    SET
-                        flag_name = EXCLUDED.flag_name,
-                        flag_description = EXCLUDED.flag_description,
-                        severity = EXCLUDED.severity,
-                        is_active = EXCLUDED.is_active
+                    DELETE FROM case_type_red_flags
+                    WHERE case_type_passport_id = %s
                     """,
-                    (passport_id, flag_code, flag_name, flag_description, severity, is_active),
+                    (passport_id,),
                 )
+                for flag_code, flag_name, flag_description, severity, is_active in passport["red_flags"]:
+                    connection.execute(
+                        """
+                        INSERT INTO case_type_red_flags (
+                            case_type_passport_id,
+                            flag_code,
+                            flag_name,
+                            flag_description,
+                            severity,
+                            is_active
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (case_type_passport_id, flag_code) DO UPDATE
+                        SET
+                            flag_name = EXCLUDED.flag_name,
+                            flag_description = EXCLUDED.flag_description,
+                            severity = EXCLUDED.severity,
+                            is_active = EXCLUDED.is_active
+                        """,
+                        (passport_id, flag_code, flag_name, flag_description, severity, is_active),
+                    )
         for level_code, percent_value in DEFAULT_LEVEL_PERCENT_MAP.items():
             connection.execute(
                 """

@@ -207,27 +207,66 @@ def split_bullets(value: str) -> list[str]:
     return items
 
 
-def parse_roles(value: str) -> list[str]:
-    normalized = clean_text(value).replace("Лидер", "Leader").replace("Менеджер", "M").replace("Линейный", "L")
-    normalized = normalized.replace("М", "M").replace("м", "m")
-    tokens = re.split(r"[,/;]| и ", normalized)
-    resolved: list[str] = []
-    mapping = {
-        "L": "linear_employee",
-        "LINEAR": "linear_employee",
-        "LINEAR_EMPLOYEE": "linear_employee",
-        "M": "manager",
-        "MANAGER": "manager",
-        "LEADER": "leader",
-    }
-    for token in tokens:
-        token_clean = clean_text(token).upper()
-        if not token_clean:
+def _normalize_flag_code_fragment(value: str) -> str:
+    normalized = clean_text(value).lower()
+    normalized = normalized.replace("ё", "е")
+    normalized = normalized.replace("=", " ")
+    normalized = re.sub(r"[^\w\s]+", " ", normalized, flags=re.UNICODE)
+    normalized = re.sub(r"\s+", "_", normalized).strip("_")
+    return normalized
+
+
+def _infer_red_flag_severity(flag_name: str) -> str:
+    lowered = clean_text(flag_name).lower()
+    critical_markers = (
+        "обвин",
+        "угроз",
+        "манипуляц",
+        "нет ",
+        "игнор",
+        "самодеятельность",
+        "ярлык",
+    )
+    return "high" if any(marker in lowered for marker in critical_markers) else "medium"
+
+
+def parse_red_flags(value: str) -> list[tuple[str, str, str, str, bool]]:
+    items = split_bullets(value)
+    parsed: list[tuple[str, str, str, str, bool]] = []
+    seen_codes: set[str] = set()
+    for item in items:
+        flag_code = _normalize_flag_code_fragment(item)
+        if not flag_code:
             continue
-        for key, code in mapping.items():
-            if key in token_clean and code not in resolved:
-                resolved.append(code)
-                break
+        base_code = flag_code
+        suffix = 2
+        while flag_code in seen_codes:
+            flag_code = f"{base_code}_{suffix}"
+            suffix += 1
+        seen_codes.add(flag_code)
+        parsed.append(
+            (
+                flag_code,
+                item,
+                f"Импортировано из карты кейсов: {item}.",
+                _infer_red_flag_severity(item),
+                True,
+            )
+        )
+    return parsed
+
+
+def parse_roles(value: str) -> list[str]:
+    resolved: list[str] = []
+    lowered = clean_text(value).lower().replace("ё", "е")
+    patterns = [
+        (r"(^|[\s,;/(\[])l($|[\s,;/)\]])|линейн", "linear_employee"),
+        (r"(^|[\s,;/(\[])m($|[\s,;/)\]])|менедж", "manager"),
+        (r"leader|лидер", "leader"),
+    ]
+    for pattern, role_code in patterns:
+        if re.search(pattern, lowered) and role_code not in resolved:
+            resolved.append(role_code)
     return resolved
 
 
@@ -256,6 +295,10 @@ def infer_artifact_code(value: str) -> str:
         return "questions_summary"
     if "сценар" in lowered or "диалог" in lowered:
         return "dialogue_script"
+    if "список" in lowered and "идей" in lowered:
+        return "action_plan"
+    if "вариант" in lowered and "риск" in lowered and "решен" in lowered:
+        return "action_plan"
     if "пилот" in lowered or "метрик" in lowered and "план" in lowered:
         return "pilot_plan"
     if "анализ причин" in lowered:
@@ -497,6 +540,36 @@ def upsert_passports(connection, passports: dict[str, PassportRecord], registry_
         passport_id = int(row["id"])
         passport_ids[type_code] = passport_id
         ensure_personalization_fields(connection, passport_id, record.personalization_text)
+        connection.execute(
+            """
+            DELETE FROM case_type_red_flags
+            WHERE case_type_passport_id = %s
+            """,
+            (passport_id,),
+        )
+        for flag_code, flag_name, flag_description, severity, is_active in parse_red_flags(record.red_flags_text):
+            connection.execute(
+                """
+                INSERT INTO case_type_red_flags (
+                    case_type_passport_id,
+                    flag_code,
+                    flag_name,
+                    flag_description,
+                    severity,
+                    is_active,
+                    version
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, 1)
+                ON CONFLICT (case_type_passport_id, flag_code) DO UPDATE
+                SET
+                    flag_name = EXCLUDED.flag_name,
+                    flag_description = EXCLUDED.flag_description,
+                    severity = EXCLUDED.severity,
+                    is_active = EXCLUDED.is_active,
+                    version = GREATEST(case_type_red_flags.version, EXCLUDED.version)
+                """,
+                (passport_id, flag_code, flag_name, flag_description, severity, is_active),
+            )
     return passport_ids
 
 

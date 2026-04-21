@@ -1,3 +1,5 @@
+const APP_RELEASE = '1';
+
 const state = {
   sessionId: null,
   completed: false,
@@ -356,6 +358,9 @@ const adminReportDetailCompetencyBars = document.getElementById('admin-report-de
 const adminReportDetailMbtiType = document.getElementById('admin-report-detail-mbti-type');
 const adminReportDetailMbtiSummary = document.getElementById('admin-report-detail-mbti-summary');
 const adminReportDetailMbtiAxes = document.getElementById('admin-report-detail-mbti-axes');
+const adminReportDetailInsightTitle = document.getElementById('admin-report-detail-insight-title');
+const adminReportDetailInsightText = document.getElementById('admin-report-detail-insight-text');
+const adminReportDetailBasis = document.getElementById('admin-report-detail-basis');
 const adminReportDetailStrengths = document.getElementById('admin-report-detail-strengths');
 const adminReportDetailGrowth = document.getElementById('admin-report-detail-growth');
 const adminReportDetailQuotes = document.getElementById('admin-report-detail-quotes');
@@ -399,6 +404,7 @@ const reportHomeButton = document.getElementById('report-home-button');
 const reportDownloadButton = document.getElementById('report-download-button');
 const profileBackButton = document.getElementById('profile-back-button');
 const profileOpenReportsButton = document.getElementById('profile-open-reports-button');
+const appReleaseNumber = document.getElementById('app-release-number');
 const reportsBackButton = document.getElementById('reports-back-button');
 const profileAvatar = document.getElementById('profile-avatar');
 const profileAvatarImage = document.getElementById('profile-avatar-image');
@@ -422,6 +428,10 @@ const reportSummaryText = document.getElementById('report-summary-text');
 const reportProfileAvatar = document.getElementById('report-profile-avatar');
 const reportProfileName = document.getElementById('report-profile-name');
 const reportProfileRole = document.getElementById('report-profile-role');
+
+if (appReleaseNumber) {
+  appReleaseNumber.textContent = APP_RELEASE;
+}
 const reportRecommendations = document.getElementById('report-recommendations');
 const reportCompetencyBars = document.getElementById('report-competency-bars');
 const reportStrengthTitle = document.getElementById('report-strength-title');
@@ -1531,9 +1541,12 @@ const getAdminMethodologyDraftFromDetail = (detail) => ({
   personalization_variables: detail?.personalization_variables || '',
   personalization_items: Array.isArray(detail?.personalization_items)
     ? detail.personalization_items.map((item, index) => ({
+      ...(buildAdminMethodologyPersonalizationDefaults(normalizePersonalizationCode(item.field_code)) || {}),
       field_code: normalizePersonalizationCode(item.field_code),
       field_label: item.field_label || '',
-      field_value_template: item.field_value_template || '',
+      field_value_template: item.source_type === 'from_user_profile'
+        ? (item.field_value_template || '')
+        : (item.field_value_template || buildAdminMethodologyPersonalizationDefaults(normalizePersonalizationCode(item.field_code)).value || ''),
       source_type: item.source_type || 'static',
       is_required: Boolean(item.is_required),
       display_order: Number(item.display_order) || index + 1,
@@ -1577,29 +1590,45 @@ const normalizePersonalizationCode = (value) => String(value || '')
 
 const buildAdminMethodologyPersonalizationDefaults = (code) => {
   const normalized = normalizePersonalizationCode(code);
-  const defaults = {
-    'роль_кратко': { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' },
-    'job_title': { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' },
-    'industry': { value: 'сервиса и клиентской поддержки', source: 'из профиля пользователя' },
-    'процесс': { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' },
-    'процесс/задача': { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' },
-    'пример поведения': { value: 'сотрудник повторно закрывает обращения без решения', source: 'задано в шаблоне кейса' },
-    'влияние': { value: 'растет число повторных обращений', source: 'задано в шаблоне кейса' },
-    'срок': { value: '2 недели', source: 'задано в шаблоне кейса' },
-    'ресурсы развития': { value: 'наставничество и еженедельные 1:1', source: 'задано в шаблоне кейса' },
-    'метрика': { value: 'доля повторных обращений', source: 'задано в шаблоне кейса' },
-    'стейкхолдер': { value: 'руководитель направления', source: 'задано в шаблоне кейса' },
-    'ограничение': { value: 'нельзя менять SLA без согласования', source: 'задано в шаблоне кейса' },
-    'система': { value: 'Service Desk', source: 'задано в шаблоне кейса' },
-    'тип клиента': { value: 'внутренний заказчик', source: 'задано в шаблоне кейса' },
-    'риск': { value: 'эскалация повторных обращений', source: 'задано в шаблоне кейса' },
-    'триггер': { value: 'жалоба на закрытие обращения без решения', source: 'задано в шаблоне кейса' },
-  };
-  if (defaults[normalized]) {
-    return defaults[normalized];
+  const defaults = new Map([
+    ['роль_кратко', { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' }],
+    ['job_title', { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' }],
+    ['industry', { value: 'сервиса и клиентской поддержки', source: 'из профиля пользователя' }],
+    ['сфера_деятельности_компании', { value: 'сервиса и клиентской поддержки', source: 'из профиля пользователя' }],
+    ['контекст_обязанностей', { value: 'сопровождение клиентских обращений и контроль качества сервиса', source: 'задано в шаблоне кейса' }],
+    ['процесс', { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' }],
+    ['процесс/сервис', { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' }],
+    ['процесс/задача', { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' }],
+    ['пример_поведения', { value: 'сотрудник повторно закрывает обращения без решения', source: 'задано в шаблоне кейса' }],
+    ['влияние', { value: 'растет число повторных обращений', source: 'задано в шаблоне кейса' }],
+    ['срок', { value: '2 недели', source: 'задано в шаблоне кейса' }],
+    ['ресурсы_развития', { value: 'наставничество и еженедельные 1:1', source: 'задано в шаблоне кейса' }],
+    ['метрика', { value: 'доля повторных обращений', source: 'задано в шаблоне кейса' }],
+    ['стейкхолдер', { value: 'руководитель направления', source: 'задано в шаблоне кейса' }],
+    ['ограничение', { value: 'нельзя менять SLA без согласования', source: 'задано в шаблоне кейса' }],
+    ['ограничения/полномочия', { value: 'нельзя обещать решение без подтверждения смежной команды', source: 'задано в шаблоне кейса' }],
+    ['система', { value: 'Service Desk', source: 'задано в шаблоне кейса' }],
+    ['канал', { value: 'чат поддержки', source: 'задано в шаблоне кейса' }],
+    ['тип_клиента', { value: 'внутренний заказчик', source: 'задано в шаблоне кейса' }],
+    ['стейкхолдеры', { value: 'руководитель направления и смежная команда', source: 'задано в шаблоне кейса' }],
+    ['описание_проблемы', { value: 'обращение закрыто без фактического решения', source: 'задано в шаблоне кейса' }],
+    ['sla/срок', { value: 'до конца рабочего дня', source: 'задано в шаблоне кейса' }],
+    ['критичное_действие_/_этап_процесса', { value: 'завершение клиентского запроса', source: 'задано в шаблоне кейса' }],
+    ['id_обращения', { value: 'INC-48217', source: 'задано в шаблоне кейса' }],
+    ['время_жалобы', { value: '16:40', source: 'задано в шаблоне кейса' }],
+    ['что_зафиксировано_в_системе', { value: 'обращение закрыто с пометкой выполнено', source: 'задано в шаблоне кейса' }],
+    ['что_осталось_нерешённым', { value: 'клиент не получил ожидаемый результат', source: 'задано в шаблоне кейса' }],
+    ['последствие_для_процесса', { value: 'сдвигается следующий этап работы клиента', source: 'задано в шаблоне кейса' }],
+    ['ответственная_команда_/_специалист', { value: 'команда сопровождения второй линии', source: 'задано в шаблоне кейса' }],
+    ['руководитель_/_дежурный_/_владелец_процесса', { value: 'дежурный руководитель смены', source: 'задано в шаблоне кейса' }],
+    ['риск', { value: 'эскалация повторных обращений', source: 'задано в шаблоне кейса' }],
+    ['триггер', { value: 'жалоба на закрытие обращения без решения', source: 'задано в шаблоне кейса' }],
+  ]);
+  if (defaults.has(normalized)) {
+    return defaults.get(normalized);
   }
   return {
-    value: 'значение задается методистом',
+    value: '',
     source: normalized.includes('роль') || normalized.includes('industry') ? 'из профиля пользователя' : 'задано в шаблоне кейса',
   };
 };
@@ -1639,16 +1668,20 @@ const collectAdminMethodologyPersonalizationRows = (detail, scenarioText) => {
     return sourceItems.map((item) => {
       const code = normalizePersonalizationCode(item.field_code);
       const fallback = buildAdminMethodologyPersonalizationDefaults(code);
+      const sourceType = item.source_type || 'static';
+      const rawValue = sourceType === 'from_user_profile'
+        ? (item.field_value_template || fallback.value)
+        : (item.field_value_template || fallback.value || '');
       const resolvedValue = code === 'роль_кратко' || code === 'role'
-        ? expandAdminMethodologyRoleLabel(item.field_value_template || fallback.value)
-        : (item.field_value_template || fallback.value);
+        ? expandAdminMethodologyRoleLabel(rawValue)
+        : rawValue;
       return {
         code,
         label: item.field_label || code,
         value: resolvedValue,
-        source: item.source_type === 'from_user_profile'
+        source: sourceType === 'from_user_profile'
           ? 'из профиля пользователя'
-          : item.source_type === 'hybrid'
+          : sourceType === 'hybrid'
             ? 'смешанный источник'
             : 'задано в шаблоне кейса',
       };
@@ -1974,11 +2007,12 @@ const renderAdminMethodologyPersonalizationEditor = (detail, source) => {
       profileHint.textContent = 'Значение подставляется из профиля пользователя';
       valueCell.appendChild(profileHint);
     } else {
+      const fallback = buildAdminMethodologyPersonalizationDefaults(item.field_code);
       const valueInput = document.createElement('input');
       valueInput.type = 'text';
       valueInput.className = 'admin-methodology-input';
-      valueInput.placeholder = 'Введите значение переменной';
-      valueInput.value = item.field_value_template || '';
+      valueInput.placeholder = '';
+      valueInput.value = item.field_value_template || fallback.value || '';
       valueInput.addEventListener('input', (event) => {
         updateAdminMethodologyPersonalizationItem(index, {
           field_value_template: event.target.value,
@@ -2990,22 +3024,17 @@ const renderAdminCompetencyVisual = (items) => {
     }
   });
 
-  adminReportDetailCompetencyBars.innerHTML =
-    '<div class="admin-detail-radar-card">' +
-      '<div class="admin-detail-radar-stage">' +
-        '<div class="admin-detail-radar-figure">' +
-          '<div class="admin-detail-radar-shape"></div>' +
-          '<span class="admin-detail-radar-dot top"></span>' +
-          '<span class="admin-detail-radar-dot right"></span>' +
-          '<span class="admin-detail-radar-dot bottom"></span>' +
-          '<span class="admin-detail-radar-dot left"></span>' +
-        '</div>' +
-        '<div class="admin-detail-radar-label top">Креативность (' + values['Креативность'] + '%)</div>' +
-        '<div class="admin-detail-radar-label right">Кооперация (' + values['Командная работа'] + '%)</div>' +
-        '<div class="admin-detail-radar-label bottom">Крит. мышление (' + values['Критическое мышление'] + '%)</div>' +
-        '<div class="admin-detail-radar-label left">Коммуникация (' + values['Коммуникация'] + '%)</div>' +
-      '</div>' +
-    '</div>';
+  adminReportDetailCompetencyBars.innerHTML = '';
+  competencyOrder.forEach((competency) => {
+    const value = Math.max(0, Math.min(100, values[competency] || 0));
+    const card = document.createElement('article');
+    card.className = 'report-competency-bar-card admin-detail-competency-card';
+    card.innerHTML =
+      '<strong>' + value + '%</strong>' +
+      '<span>' + competency + '</span>' +
+      '<div class="report-competency-meter"><div class="report-competency-meter-fill" style="height:' + value + '%"></div></div>';
+    adminReportDetailCompetencyBars.appendChild(card);
+  });
 };
 
 const getFilteredAdminReports = () => {
@@ -3169,11 +3198,14 @@ const renderAdminReportDetail = () => {
     }
     adminReportDetailMbtiType.textContent = 'Нет данных';
     adminReportDetailMbtiSummary.textContent = 'Данные по отчету пока недоступны.';
+    adminReportDetailInsightTitle.textContent = 'AI insight недоступен';
+    adminReportDetailInsightText.textContent = 'После загрузки результатов здесь появится интерпретация профиля пользователя.';
     renderAdminCompetencyVisual([]);
     adminReportDetailMbtiAxes.innerHTML = '';
+    adminReportDetailBasis.innerHTML = '';
     adminReportDetailStrengths.innerHTML = '<li>Данные будут доступны после появления результатов оценки.</li>';
     adminReportDetailGrowth.innerHTML = '<li>Зоны роста будут определены после накопления результатов.</li>';
-    adminReportDetailQuotes.innerHTML = '<article class="admin-detail-quote-card"><p>Цитаты из оценки пока недоступны.</p></article>';
+    adminReportDetailQuotes.innerHTML = '';
     return;
   }
 
@@ -3205,6 +3237,8 @@ const renderAdminReportDetail = () => {
   }
   adminReportDetailMbtiType.textContent = detail.mbti_type || 'Нет данных';
   adminReportDetailMbtiSummary.textContent = detail.mbti_summary || 'Данные MBTI пока недоступны для этой записи.';
+  adminReportDetailInsightTitle.textContent = detail.insight_title || 'AI insight недоступен';
+  adminReportDetailInsightText.textContent = detail.insight_text || 'Для этой записи пока не удалось построить интерпретацию результатов.';
 
   renderAdminCompetencyVisual(competencyItems);
 
@@ -3217,6 +3251,13 @@ const renderAdminReportDetail = () => {
       '<div class="admin-detail-mbti-axis-head"><span>' + (axis.left || 'Нет данных') + '</span><span>' + (axis.right || 'Нет данных') + '</span></div>' +
       '<div class="admin-detail-mbti-axis-track"><span style="width:' + value + '%"></span></div>';
     adminReportDetailMbtiAxes.appendChild(item);
+  });
+
+  adminReportDetailBasis.innerHTML = '';
+  (detail.basis_items && detail.basis_items.length ? detail.basis_items : []).forEach((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    adminReportDetailBasis.appendChild(item);
   });
 
   adminReportDetailStrengths.innerHTML = '';
@@ -3234,7 +3275,7 @@ const renderAdminReportDetail = () => {
   });
 
   adminReportDetailQuotes.innerHTML = '';
-  (detail.quotes && detail.quotes.length ? detail.quotes : ['Цитаты из оценки пока недоступны.']).forEach((text) => {
+  (detail.quotes && detail.quotes.length ? detail.quotes : []).forEach((text) => {
     const card = document.createElement('article');
     card.className = 'admin-detail-quote-card';
     card.innerHTML = '<p>' + text + '</p>';
@@ -3289,7 +3330,10 @@ const openAdminReportDetail = async (sessionId) => {
     adminReportDetailStatusBadge.textContent = 'Подготовка';
   }
   adminReportDetailCompetencyBars.innerHTML = '<p class="report-empty-state">Загружаем сводные показатели...</p>';
+  adminReportDetailInsightTitle.textContent = 'Загружаем AI insight...';
+  adminReportDetailInsightText.textContent = 'Подготавливаем интерпретацию результатов пользователя.';
   adminReportDetailMbtiAxes.innerHTML = '';
+  adminReportDetailBasis.innerHTML = '';
   adminReportDetailStrengths.innerHTML = '';
   adminReportDetailGrowth.innerHTML = '';
   adminReportDetailQuotes.innerHTML = '';
@@ -3302,10 +3346,13 @@ const openAdminReportDetail = async (sessionId) => {
     adminReportDetailRole.textContent = error.message;
     adminReportDetailGroup.textContent = 'Попробуйте открыть запись позже';
     adminReportDetailCompetencyBars.innerHTML = '<p class="report-empty-state">' + error.message + '</p>';
+    adminReportDetailInsightTitle.textContent = 'Не удалось загрузить AI insight';
+    adminReportDetailInsightText.textContent = error.message;
     adminReportDetailMbtiSummary.textContent = 'Не удалось загрузить данные MBTI.';
+    adminReportDetailBasis.innerHTML = '';
     adminReportDetailStrengths.innerHTML = '<li>Данные временно недоступны.</li>';
     adminReportDetailGrowth.innerHTML = '<li>Данные временно недоступны.</li>';
-    adminReportDetailQuotes.innerHTML = '<article class="admin-detail-quote-card"><p>Отчет пока не удалось загрузить.</p></article>';
+    adminReportDetailQuotes.innerHTML = '';
   }
 };
 
@@ -3359,41 +3406,22 @@ const renderDashboard = () => {
   });
 
   reportsList.innerHTML = '';
-  if (!dashboard.reports.length) {
-    const item = document.createElement('article');
-    item.className = 'report-card report-card-clickable';
-    item.innerHTML =
-      '<div class="report-badge muted-report">0%</div>' +
-      '<div class="report-copy"><h3>4K Assessment</h3><p>История отчетов открывается на отдельной странице. После завершения ассессмента внутри отчета будут доступны раскрывающиеся результаты по навыкам.</p></div>' +
-      '<div class="report-actions"><button type="button" class="report-action-button muted">Открыть</button></div>';
-    item.addEventListener('click', () => {
-      void openReports();
-    });
-    reportsList.appendChild(item);
-  } else {
-    dashboard.reports.forEach((report) => {
-      const item = document.createElement('article');
-      item.className = 'report-card report-card-clickable';
-      const reportMetaParts = [];
-      if (report.sequence_number != null) {
-        reportMetaParts.push('Прохождение №' + report.sequence_number);
-      }
-      if (report.report_at) {
-        reportMetaParts.push(formatDashboardReportDateTime(report.report_at));
-      }
-      const reportMetaMarkup = reportMetaParts.length
-        ? '<div class="report-copy-meta">' + reportMetaParts.join(' • ') + '</div>'
-        : '';
-      item.innerHTML =
-        '<div class="report-badge">' + report.badge + '</div>' +
-        '<div class="report-copy"><h3>' + report.title + '</h3>' + reportMetaMarkup + '<p>' + report.summary + '</p></div>' +
-        '<div class="report-actions"><button type="button" class="report-action-button">Открыть</button></div>';
-      item.addEventListener('click', () => {
-        void openReports();
-      });
-      reportsList.appendChild(item);
-    });
-  }
+  const reportsCount = Number.isFinite(Number(dashboard.reports_total))
+    ? Number(dashboard.reports_total)
+    : (Array.isArray(dashboard.reports) ? dashboard.reports.length : 0);
+  const reportsSummary = document.createElement('button');
+  reportsSummary.type = 'button';
+  reportsSummary.className = 'reports-summary-button';
+  reportsSummary.innerHTML =
+    '<div class="reports-summary-copy">' +
+      '<span class="reports-summary-label">Всего отчетов по оценке</span>' +
+      '<strong class="reports-summary-count">' + reportsCount + '</strong>' +
+    '</div>' +
+    '<span class="reports-summary-action">Перейти к отчетам</span>';
+  reportsSummary.addEventListener('click', () => {
+    void openReports();
+  });
+  reportsList.appendChild(reportsSummary);
 };
 
 const openDashboard = () => {

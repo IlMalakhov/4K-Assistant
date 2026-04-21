@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>4K Ассистент</title>
-  <link rel="stylesheet" href="/web/app.css?v=20260419-0014">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/web/app.css?v=20260421-1327">
 </head>
 <body>
   <div id="app-loader" class="app-loader hidden" aria-live="polite">
@@ -26,7 +29,10 @@
   </div>
   <main class="shell">
     <section class="panel auth-panel" id="auth-panel">
-      <div class="brand">4K Ассистент</div>
+      <div class="auth-panel-head">
+        <div class="brand">4K Ассистент</div>
+        <div id="app-release-badge" class="release-badge">Релиз <span id="app-release-number">1</span></div>
+      </div>
       <h1>Вход в систему</h1>
       <p class="subtitle">Введите номер телефона, а затем система либо откроет диалог с профилем, либо зарегистрирует нового пользователя.</p>
       <form id="phone-form" class="stack">
@@ -59,7 +65,9 @@
       <div class="dashboard-topbar">
         <div class="brand dashboard-brand">4K Ассистент</div>
         <div class="dashboard-topbar-actions">
-          <button id="dashboard-profile-button" class="topbar-profile-button" type="button">Профиль</button>
+          <button id="dashboard-profile-button" class="topbar-profile-button profile-settings-button topbar-icon" type="button" aria-label="Открыть профиль">
+            ⚙
+          </button>
           <div class="user-chip">
             <div class="user-chip-copy">
               <strong id="dashboard-user-name">Александр</strong>
@@ -627,17 +635,17 @@
       <div class="report-shell admin-report-detail-shell">
         <section class="report-hero">
           <div class="report-hero-copy">
-            <h2>Отчет по оценке</h2>
+            <h2>Индивидуальный отчет</h2>
             <p id="admin-report-detail-date">Без даты</p>
           </div>
           <div class="report-hero-score">
             <strong id="admin-report-detail-score">0%</strong>
-            <span>Итоговый 4K score</span>
+            <span>Интегральный показатель</span>
           </div>
         </section>
 
-        <section class="report-overview-grid">
-          <article class="report-profile-card">
+        <section class="admin-detail-user-card">
+          <div class="admin-detail-user-strip">
             <div class="admin-detail-profile-head">
               <div class="admin-detail-photo-card">
                 <div id="admin-report-detail-avatar" class="admin-detail-photo">A</div>
@@ -653,17 +661,19 @@
                 </div>
               </div>
             </div>
-            <div class="report-profile-box">
+            <div class="admin-detail-user-meta">
               <strong>Статус оценки</strong>
               <p id="admin-report-detail-status">Черновик</p>
             </div>
-          </article>
+          </div>
+        </section>
 
+        <section class="admin-detail-top-grid">
           <article class="report-competencies-card">
             <div class="report-card-head">
               <div>
                 <p class="section-label accent-label">Компетенции (4К)</p>
-                <h3>Оценка ключевых навыков</h3>
+                <h3>Сводные показатели по компетенциям</h3>
               </div>
             </div>
             <div id="admin-report-detail-competency-bars" class="admin-detail-competency-visual"></div>
@@ -689,6 +699,11 @@
               <h3>Сильные стороны и зоны роста</h3>
             </div>
             <span class="admin-detail-card-icon accent">✦</span>
+          </div>
+          <div class="admin-detail-insights-summary">
+            <h4 id="admin-report-detail-insight-title">AI insight недоступен</h4>
+            <p id="admin-report-detail-insight-text">После загрузки результатов здесь появится интерпретация профиля пользователя.</p>
+            <ul id="admin-report-detail-basis" class="admin-detail-basis-list"></ul>
           </div>
           <div class="admin-detail-insights-grid">
             <article class="admin-detail-insight-column">
@@ -1062,6 +1077,6 @@
     </section>
   </main>
 
-  <script src="/web/app.js?v=20260419-0014" defer></script>
+  <script src="/web/app.js?v=20260421-1327" defer></script>
 </body>
 </html>
