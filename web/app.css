@@ -66,6 +66,7 @@ body {
 
 .dashboard-panel,
 .admin-panel,
+.admin-methodology-panel,
 .admin-reports-panel,
 .admin-report-detail-panel,
 .ai-welcome-panel,
@@ -3993,10 +3994,6 @@ textarea {
         font-size: 34px;
     }
 
-    .admin-detail-radar-figure {
-        inset: 48px 48px 48px 48px;
-    }
-
     .admin-detail-competency-radar-card,
     .admin-detail-skills-radar-card {
         min-height: 360px;
@@ -4285,6 +4282,1252 @@ textarea {
     .interview-form-footer {
         flex-direction: column;
         align-items: flex-start;
+    }
+}
+
+/* Scoped additions from main kept on top of the design-fix baseline. */
+.admin-methodology-panel {
+    background: var(--bg-soft);
+}
+
+.auth-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.auth-panel-head .brand {
+    margin-bottom: 0;
+}
+
+.release-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #f4f6fd;
+    border: 1px solid rgba(221, 225, 242, 0.96);
+    color: #7c83a1;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.release-badge span {
+    color: var(--accent);
+    font-weight: 800;
+}
+
+.onboarding-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.onboarding-topbar-actions,
+.interview-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.interview-topbar-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.topbar-user-copy {
+    display: grid;
+    gap: 2px;
+}
+
+.topbar-user-copy strong {
+    color: var(--text-main);
+    font-size: 14px;
+    line-height: 1.2;
+}
+
+.topbar-user-copy span {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.profile-avatar-card {
+    position: relative;
+    width: 82px;
+    height: 82px;
+}
+
+.profile-avatar-card .profile-avatar,
+.profile-avatar-image {
+    position: absolute;
+    inset: 2px;
+    width: 78px;
+    height: 78px;
+    border-radius: 18px;
+}
+
+.profile-avatar-image {
+    object-fit: cover;
+    border: 1px solid var(--line);
+    background: var(--bg-soft);
+}
+
+.profile-avatar-upload {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.profile-editable-field {
+    position: relative;
+}
+
+.profile-field-wide {
+    grid-column: 1 / -1;
+}
+
+.profile-editable-field input {
+    padding-right: 36px;
+}
+
+.profile-field-edit-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 12px;
+    pointer-events: none;
+}
+
+.profile-field input[readonly] {
+    cursor: default;
+}
+
+.profile-save-status {
+    margin: 12px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.profile-save-status.error {
+    color: #d14d5d;
+}
+
+.profile-save-status.success {
+    color: #2f9c67;
+}
+
+.profile-history-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 6px;
+    padding: 8px 4px 0;
+}
+
+.profile-history-page-indicator {
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.profile-history-page-button[disabled] {
+    opacity: 0.48;
+    cursor: default;
+}
+
+.reports-intro-card {
+    padding: 18px;
+    border-radius: 18px;
+    background: #ffffff;
+    border: 1px solid var(--panel-border);
+}
+
+.reports-intro-card strong {
+    color: var(--accent);
+}
+
+.skill-artifact-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.report-hero-score-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+}
+
+.report-score-hint {
+    position: relative;
+    width: 20px;
+    height: 20px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(70, 72, 212, 0.12);
+    border: 1px solid rgba(70, 72, 212, 0.2);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: help;
+}
+
+.report-score-tooltip {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 12px);
+    width: 280px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #1f2436;
+    color: #f5f7ff;
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+    box-shadow: 0 18px 44px rgba(18, 24, 42, 0.24);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease,
+        visibility 0.18s ease;
+    z-index: 8;
+    pointer-events: none;
+}
+
+.report-score-hint:hover .report-score-tooltip,
+.report-score-hint:focus-visible .report-score-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.hero-preparing,
+.assessment-preparing {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.hero-preparing {
+    margin-top: 18px;
+}
+
+.preparing-copy {
+    display: grid;
+    gap: 4px;
+}
+
+.preparing-copy strong {
+    font-size: 15px;
+}
+
+.preparing-copy span {
+    color: var(--text-muted);
+    line-height: 1.45;
+    font-size: 13px;
+}
+
+.preparing-ring {
+    --progress: 0%;
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background:
+        radial-gradient(circle at center, #fff 58%, transparent 59%),
+        conic-gradient(#2fb86f var(--progress), rgba(47, 184, 111, 0.16) 0);
+    box-shadow: inset 0 0 0 1px rgba(47, 184, 111, 0.1);
+}
+
+.preparing-ring.hero {
+    width: 84px;
+    height: 84px;
+}
+
+.preparing-ring.mini {
+    width: 42px;
+    height: 42px;
+    background:
+        radial-gradient(circle at center, #fff 54%, transparent 55%),
+        conic-gradient(#2fb86f var(--progress), rgba(47, 184, 111, 0.16) 0);
+}
+
+.preparing-ring-value {
+    font-size: 12px;
+    font-weight: 800;
+    color: #22864f;
+}
+
+.preparing-ring.hero .preparing-ring-value {
+    font-size: 14px;
+}
+
+.mini-card-preparing {
+    margin-left: auto;
+}
+
+.interview-bubble.structured {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+}
+
+.interview-bubble-section {
+    display: grid;
+    gap: 8px;
+}
+
+.interview-bubble-section.task {
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: rgba(70, 72, 212, 0.06);
+    border: 1px solid rgba(70, 72, 212, 0.12);
+}
+
+.interview-bubble-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.interview-bubble-text,
+.interview-bubble-task {
+    white-space: pre-wrap;
+}
+
+.interview-bubble-task {
+    font-weight: 700;
+}
+
+.admin-methodology-shell,
+.admin-methodology-workspace,
+.admin-methodology-view,
+.admin-methodology-summary,
+.admin-methodology-risk-list,
+.admin-methodology-risk-shell,
+.admin-methodology-risk-body,
+.admin-methodology-detail-stack,
+.admin-methodology-personalization-table,
+.admin-methodology-personalization-editor-table,
+.admin-methodology-checks,
+.admin-methodology-signals,
+.admin-methodology-history {
+    display: grid;
+    gap: 16px;
+}
+
+.admin-methodology-tabs {
+    display: inline-flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 18px;
+    background: #f3f5fd;
+    border: 1px solid rgba(70, 72, 212, 0.08);
+    width: fit-content;
+}
+
+.admin-methodology-tab {
+    padding: 12px 18px;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 15px;
+}
+
+.admin-methodology-tab.active {
+    background: #ffffff;
+    color: var(--accent);
+    box-shadow: 0 10px 24px rgba(31, 38, 64, 0.08);
+}
+
+.admin-methodology-columns,
+.admin-methodology-row {
+    grid-template-columns: minmax(260px, 1.5fr) 120px 180px 220px 100px 90px 180px;
+}
+
+.admin-methodology-row {
+    cursor: default;
+}
+
+.admin-methodology-row:hover,
+.admin-methodology-row:focus-visible {
+    transform: none;
+}
+
+.admin-methodology-title-cell,
+.admin-methodology-status-cell,
+.admin-methodology-id-cell {
+    display: grid;
+    gap: 6px;
+}
+
+.admin-methodology-id-cell span {
+    font-family: "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.admin-methodology-id-cell small,
+.admin-methodology-status-cell small,
+.admin-methodology-row small {
+    color: var(--text-muted);
+}
+
+.admin-methodology-passports {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.admin-methodology-passport-card,
+.admin-methodology-coverage-row,
+.admin-methodology-risk-item,
+.admin-methodology-detail-field,
+.admin-methodology-detail-block,
+.admin-methodology-personalization-box,
+.admin-methodology-check-item,
+.admin-methodology-signal-card,
+.admin-methodology-history-item {
+    border: 1px solid rgba(204, 208, 232, 0.82);
+    background: rgba(250, 251, 255, 0.96);
+}
+
+.admin-methodology-passport-card {
+    display: grid;
+    gap: 10px;
+    padding: 18px;
+    border-radius: 22px;
+}
+
+.admin-methodology-passport-card h4 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.admin-methodology-passport-card p,
+.admin-methodology-passport-card small {
+    margin: 0;
+    color: var(--text-muted);
+}
+
+.admin-methodology-passport-head,
+.admin-methodology-passport-meta,
+.admin-methodology-branch-head,
+.admin-methodology-branch-stat,
+.admin-methodology-risk-toolbar,
+.admin-methodology-risk-pagination,
+.admin-methodology-risk-toolbar-controls,
+.admin-methodology-risk-head,
+.admin-methodology-drawer-head,
+.admin-methodology-drawer-actions,
+.admin-methodology-section-head,
+.admin-methodology-personalization-box-head,
+.admin-methodology-personalization-actions,
+.admin-methodology-signal-head,
+.admin-methodology-history-head {
+    display: flex;
+    gap: 12px;
+}
+
+.admin-methodology-passport-head,
+.admin-methodology-passport-meta,
+.admin-methodology-branch-head,
+.admin-methodology-branch-stat,
+.admin-methodology-risk-toolbar,
+.admin-methodology-risk-pagination,
+.admin-methodology-drawer-head,
+.admin-methodology-section-head,
+.admin-methodology-personalization-box-head,
+.admin-methodology-signal-head,
+.admin-methodology-history-head {
+    justify-content: space-between;
+    align-items: center;
+}
+
+.admin-methodology-passport-meta,
+.admin-methodology-risk-toolbar-controls,
+.admin-methodology-drawer-actions,
+.admin-methodology-personalization-actions {
+    flex-wrap: wrap;
+}
+
+.admin-methodology-branches-grid,
+.admin-methodology-coverage-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.admin-methodology-branch-card {
+    display: grid;
+    gap: 12px;
+    padding: 22px;
+    border-radius: 24px;
+    background: #ffffff;
+    border: 1px solid rgba(70, 72, 212, 0.1);
+    box-shadow: 0 18px 44px rgba(31, 38, 64, 0.06);
+}
+
+.admin-methodology-branch-head span,
+.admin-methodology-branch-stat span,
+.admin-methodology-summary span,
+.admin-methodology-risk-summary span,
+.admin-methodology-risk-head span,
+.admin-methodology-detail-field span,
+.admin-methodology-detail-block-label,
+.admin-methodology-chip-group-title,
+.admin-methodology-signal-card small,
+.admin-methodology-history-head span,
+.admin-methodology-history-item small {
+    color: var(--text-muted);
+}
+
+.admin-methodology-branch-stat strong,
+.admin-methodology-summary strong {
+    color: var(--accent);
+}
+
+.admin-methodology-branch-stat.secondary strong {
+    color: #b47a00;
+}
+
+.admin-report-score-track.warm span {
+    background: linear-gradient(135deg, #f0b768, #d4872b);
+}
+
+.admin-methodology-coverage-table {
+    display: grid;
+    gap: 12px;
+}
+
+.admin-methodology-coverage-head,
+.admin-methodology-coverage-row {
+    display: grid;
+    grid-template-columns: minmax(200px, 1.5fr) repeat(3, minmax(80px, 1fr));
+    gap: 12px;
+    align-items: center;
+}
+
+.admin-methodology-coverage-head,
+.admin-methodology-personalization-head,
+.admin-methodology-personalization-editor-head {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.admin-methodology-coverage-row,
+.admin-methodology-risk-item,
+.admin-methodology-detail-field,
+.admin-methodology-detail-block,
+.admin-methodology-personalization-box,
+.admin-methodology-check-item,
+.admin-methodology-signal-card,
+.admin-methodology-history-item {
+    padding: 12px 14px;
+    border-radius: 16px;
+}
+
+.admin-methodology-summary div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(204, 208, 232, 0.6);
+}
+
+.admin-methodology-summary div:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.admin-methodology-risk-toolbar {
+    padding: 10px 12px;
+    border-radius: 16px;
+    background: rgba(247, 248, 254, 0.96);
+    border: 1px solid rgba(204, 208, 232, 0.72);
+}
+
+.admin-methodology-risk-summary {
+    display: grid;
+    gap: 2px;
+}
+
+.admin-methodology-risk-summary strong {
+    font-size: 13px;
+    color: var(--text-main);
+}
+
+.admin-methodology-risk-pagination-summary {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.admin-methodology-risk-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-methodology-risk-item p,
+.admin-methodology-risk-item small,
+.admin-methodology-signal-card p {
+    margin: 0;
+}
+
+.admin-methodology-risk-item.critical {
+    border-color: rgba(214, 77, 77, 0.24);
+    background: rgba(255, 243, 243, 0.95);
+}
+
+.admin-methodology-risk-item.warning {
+    border-color: rgba(214, 158, 57, 0.24);
+    background: rgba(255, 249, 239, 0.95);
+}
+
+.admin-methodology-risk-item.case-quality {
+    border-color: rgba(88, 118, 214, 0.18);
+    background: rgba(244, 247, 255, 0.95);
+}
+
+.admin-methodology-drawer {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+
+.admin-methodology-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(17, 22, 38, 0.34);
+    backdrop-filter: blur(3px);
+}
+
+.admin-methodology-drawer-panel {
+    position: absolute;
+    top: 12px;
+    right: 0;
+    width: min(560px, 100%);
+    max-height: calc(100vh - 24px);
+    background: rgba(255, 255, 255, 0.98);
+    border-left: 1px solid rgba(70, 72, 212, 0.12);
+    box-shadow: -18px 0 44px rgba(17, 22, 38, 0.14);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    border-radius: 18px 0 0 18px;
+    overflow: hidden;
+}
+
+.admin-methodology-drawer-head {
+    align-items: flex-start;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid rgba(204, 208, 232, 0.7);
+}
+
+.admin-methodology-drawer-body {
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 14px;
+}
+
+.admin-methodology-drawer-head h3 {
+    margin: 4px 0 0;
+    font-size: 17px;
+    line-height: 1.2;
+    max-width: 360px;
+}
+
+.admin-methodology-save-status,
+.admin-methodology-edit-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.admin-methodology-detail-card {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 16px;
+    background: #ffffff;
+    border: 1px solid rgba(70, 72, 212, 0.1);
+    box-shadow: 0 12px 28px rgba(31, 38, 64, 0.05);
+    align-content: start;
+    flex: 0 0 auto;
+}
+
+.admin-methodology-detail-grid,
+.admin-methodology-inline-controls,
+.admin-methodology-status-controls,
+.admin-methodology-detail-chip-groups,
+.admin-methodology-detail-columns {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-methodology-detail-grid,
+.admin-methodology-inline-controls,
+.admin-methodology-detail-chip-groups,
+.admin-methodology-detail-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-methodology-status-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-methodology-detail-field,
+.admin-methodology-status-field,
+.admin-methodology-chip-group {
+    display: grid;
+    gap: 6px;
+}
+
+.admin-methodology-chip-group-wide {
+    grid-column: 1 / -1;
+}
+
+.admin-methodology-detail-card h4 {
+    margin: 2px 0 0;
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.admin-methodology-value,
+.admin-methodology-case-text,
+.admin-methodology-detail-block p,
+.admin-methodology-signal-card p {
+    line-height: 1.45;
+    font-size: 14px;
+}
+
+.admin-methodology-case-text {
+    line-height: 1.6;
+    font-size: 15px;
+}
+
+.admin-methodology-inline-variable {
+    display: inline;
+    padding: 0 2px;
+    border-radius: 6px;
+    background: rgba(70, 72, 212, 0.1);
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.admin-methodology-scenario-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(243, 245, 255, 0.98);
+    border: 1px solid rgba(204, 208, 232, 0.72);
+}
+
+.admin-methodology-scenario-toolbar {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+.admin-methodology-scenario-tab {
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.admin-methodology-scenario-tab.active {
+    background: rgba(70, 72, 212, 0.14);
+    color: var(--accent);
+}
+
+.admin-methodology-case-text-block {
+    gap: 8px;
+}
+
+.admin-methodology-personalization-row,
+.admin-methodology-personalization-editor-row {
+    display: grid;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid rgba(204, 208, 232, 0.56);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.admin-methodology-personalization-row {
+    grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.4fr) minmax(132px, 0.9fr);
+}
+
+.admin-methodology-personalization-editor-row {
+    grid-template-columns: minmax(132px, 0.9fr) minmax(0, 1.35fr) minmax(150px, 0.95fr) auto;
+}
+
+.admin-methodology-personalization-code {
+    font-family: "SF Mono", "Menlo", monospace;
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.admin-methodology-personalization-source,
+.admin-methodology-personalization-help,
+.admin-methodology-personalization-profile-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.admin-methodology-input {
+    width: 100%;
+    border: 1px solid rgba(204, 208, 232, 0.92);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text-main);
+    background: #ffffff;
+    resize: vertical;
+}
+
+.admin-methodology-input:focus {
+    outline: none;
+    border-color: rgba(70, 72, 212, 0.6);
+    box-shadow: 0 0 0 4px rgba(70, 72, 212, 0.12);
+}
+
+.admin-methodology-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.admin-methodology-chip,
+.admin-methodology-chip-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(70, 72, 212, 0.1);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.admin-methodology-chip.muted {
+    background: rgba(226, 230, 244, 0.9);
+    color: var(--text-muted);
+}
+
+.admin-methodology-chip-button {
+    border: 0;
+    cursor: pointer;
+}
+
+.admin-methodology-chip-button.selected {
+    background: rgba(70, 72, 212, 0.16);
+    box-shadow: 0 8px 18px rgba(70, 72, 212, 0.12);
+}
+
+.admin-methodology-icon-button {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(204, 208, 232, 0.92);
+    border-radius: 10px;
+    background: #fff;
+    color: #c15757;
+    cursor: pointer;
+}
+
+.admin-methodology-icon-button svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.admin-methodology-detail-list {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+    line-height: 1.35;
+    font-size: 13px;
+}
+
+.admin-methodology-check-item {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+}
+
+.admin-methodology-check-item small {
+    grid-column: 1 / -1;
+}
+
+.admin-methodology-check-item.passed span {
+    color: #2f8b58;
+    font-weight: 800;
+}
+
+.admin-methodology-check-item.failed span {
+    color: #b47a00;
+    font-weight: 800;
+}
+
+.admin-report-detail-shell {
+    gap: 22px;
+    justify-items: stretch;
+}
+
+.admin-detail-user-card,
+.admin-detail-insights-card,
+.admin-detail-quotes-card,
+.admin-detail-cases-card {
+    display: grid;
+    gap: 20px;
+    background: #ffffff;
+    border: 1px solid rgba(70, 72, 212, 0.1);
+    border-radius: 28px;
+    padding: 28px;
+}
+
+.admin-detail-user-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 22px;
+    align-items: start;
+}
+
+.admin-detail-user-meta {
+    min-height: 100%;
+    padding: 20px 20px 18px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, #af6400, #c97506);
+    color: #fff;
+}
+
+.admin-detail-user-meta p {
+    margin: 12px 0 0;
+    line-height: 1.45;
+}
+
+.admin-detail-top-grid {
+    display: block;
+    width: 100%;
+    margin: 0;
+}
+
+.admin-detail-top-grid > .report-competencies-card {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    grid-area: auto;
+}
+
+.admin-detail-insights-summary {
+    display: grid;
+    gap: 14px;
+    padding: 22px 24px;
+    border-radius: 22px;
+    background: linear-gradient(
+        180deg,
+        rgba(70, 72, 212, 0.06),
+        rgba(70, 72, 212, 0.13)
+    );
+}
+
+.admin-detail-insights-summary h4 {
+    margin: 0;
+    font-size: 28px;
+    line-height: 1.15;
+}
+
+.admin-detail-insights-summary p {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.6;
+    font-size: 15px;
+}
+
+.admin-detail-basis-list {
+    margin: 0;
+    padding-left: 20px;
+    display: grid;
+    gap: 10px;
+}
+
+.admin-detail-insight-column {
+    padding: 18px 20px;
+    border-radius: 20px;
+    border: 1px solid rgba(70, 72, 212, 0.08);
+    background: rgba(248, 249, 255, 0.88);
+}
+
+.admin-detail-insight-column .report-recommendations {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.admin-detail-cases-list,
+.admin-detail-case-body,
+.admin-detail-case-dialogue,
+.admin-detail-case-skills,
+.admin-detail-case-text-stack {
+    display: grid;
+    gap: 14px;
+}
+
+.admin-detail-case-item {
+    border: 1px solid rgba(70, 72, 212, 0.12);
+    border-radius: 22px;
+    background: rgba(247, 247, 255, 0.82);
+    overflow: hidden;
+}
+
+.admin-detail-case-summary {
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: center;
+    padding: 18px 20px;
+    cursor: pointer;
+}
+
+.admin-detail-case-summary::-webkit-details-marker,
+.admin-detail-case-section-summary::-webkit-details-marker,
+.admin-detail-case-prompt-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.admin-detail-case-summary-main,
+.admin-detail-case-summary-meta {
+    display: grid;
+    gap: 6px;
+}
+
+.admin-detail-case-summary-main strong {
+    font-size: 18px;
+    line-height: 1.35;
+}
+
+.admin-detail-case-order,
+.admin-detail-case-code,
+.admin-detail-case-summary-meta span,
+.admin-detail-case-meta,
+.admin-detail-case-message-role,
+.admin-detail-case-skill-meta {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.admin-detail-case-summary-meta {
+    text-align: right;
+    justify-items: end;
+}
+
+.admin-detail-case-body {
+    padding: 0 20px 20px;
+}
+
+.admin-detail-case-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.admin-detail-case-panel,
+.admin-detail-case-skill-card {
+    display: grid;
+    align-content: start;
+    gap: 14px;
+    padding: 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(70, 72, 212, 0.1);
+    background: #ffffff;
+}
+
+.admin-detail-case-meta,
+.admin-detail-case-skill-head,
+.admin-detail-case-skill-meta,
+.admin-detail-case-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.admin-detail-case-section,
+.admin-detail-case-prompt-details {
+    width: 100%;
+    border-radius: 18px;
+    border: 1px solid rgba(70, 72, 212, 0.08);
+    background: rgba(247, 247, 255, 0.62);
+    overflow: hidden;
+}
+
+.admin-detail-case-section-summary,
+.admin-detail-case-prompt-details summary {
+    cursor: pointer;
+    padding: 14px 16px;
+    font-weight: 800;
+    color: var(--text-main);
+    list-style: none;
+}
+
+.admin-detail-case-section-body {
+    display: grid;
+    gap: 14px;
+    padding: 0 16px 16px;
+}
+
+.admin-detail-case-text-block {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+}
+
+.admin-detail-case-text-block p,
+.admin-detail-case-prompt-details pre,
+.admin-detail-case-message p,
+.admin-detail-case-evidence {
+    margin: 0;
+    color: var(--text-main);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 15px;
+}
+
+.admin-detail-case-prompt-details pre {
+    padding: 14px;
+    font-family: var(--font-body);
+    overflow-wrap: anywhere;
+    overflow-x: auto;
+}
+
+.admin-detail-case-message {
+    max-width: 88%;
+    display: grid;
+    gap: 6px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: rgba(70, 72, 212, 0.08);
+    border: 1px solid rgba(70, 72, 212, 0.08);
+}
+
+.admin-detail-case-message.is-user {
+    margin-left: auto;
+    background: rgba(70, 72, 212, 0.1);
+}
+
+.admin-detail-case-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(70, 72, 212, 0.1);
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.admin-detail-case-tag.danger {
+    background: rgba(201, 72, 72, 0.12);
+    color: #a33a3a;
+}
+
+.admin-detail-case-tag.muted {
+    background: rgba(109, 112, 173, 0.08);
+    color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+    .onboarding-topbar,
+    .interview-topbar-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .admin-detail-case-columns,
+    .admin-detail-user-strip,
+    .admin-detail-top-grid,
+    .admin-methodology-passports,
+    .admin-methodology-branches-grid,
+    .admin-methodology-coverage-grid,
+    .admin-methodology-coverage-head,
+    .admin-methodology-coverage-row,
+    .admin-methodology-detail-grid,
+    .admin-methodology-detail-columns,
+    .admin-methodology-detail-chip-groups,
+    .admin-methodology-personalization-row,
+    .admin-methodology-personalization-editor-row {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-methodology-tabs {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
+    .admin-methodology-personalization-head,
+    .admin-methodology-personalization-editor-head {
+        display: none;
+    }
+}
+
+@media (max-width: 720px) {
+    .admin-methodology-drawer-panel {
+        width: 100%;
     }
 }
 

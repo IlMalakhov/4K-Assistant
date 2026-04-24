@@ -1,3 +1,5 @@
+const APP_RELEASE = '1.2';
+
 const state = {
   sessionId: null,
   completed: false,
@@ -6,6 +8,21 @@ const state = {
   dashboard: null,
   isAdmin: false,
   adminDashboard: null,
+  adminMethodology: null,
+  adminMethodologyDetail: null,
+  adminMethodologyDetailCode: null,
+  adminMethodologyEditMode: false,
+  adminMethodologySaving: false,
+  adminMethodologyDraft: null,
+  adminMethodologyActiveTextField: 'intro_context',
+  adminMethodologyPage: 1,
+  adminMethodologyRiskUi: {
+    skillGaps: { collapsed: true, page: 1 },
+    singlePoints: { collapsed: true, page: 1 },
+    caseQuality: { collapsed: true, page: 1 },
+  },
+  adminMethodologySearch: '',
+  adminMethodologyTab: 'library',
   adminReports: null,
   adminReportDetail: null,
   adminReportDetailSessionId: null,
@@ -39,8 +56,17 @@ const state = {
   processingAnimationDone: false,
   processingDataLoaded: false,
   processingAutoTransitionStarted: false,
+  assessmentPreparationStatus: 'idle',
+  assessmentPreparationProgressPercent: 0,
+  assessmentPreparationTitle: '',
+  assessmentPreparationMessage: '',
+  assessmentPreparationOperationId: null,
+  assessmentPreparationPollId: null,
+  preparedAssessmentStartResponse: null,
   profileSummary: null,
+  profileAvatarDraft: null,
   profileSelectedSessionId: null,
+  profileHistoryPage: 1,
   profileSkillAssessments: [],
   profileSkillsBySession: {},
   currentScreen: 'auth',
@@ -75,6 +101,9 @@ const processingPhases = [
   'Проверяем красные флаги и итоговые уровни по каждому навыку.',
   'Формируем итоговый профиль и подготавливаем результаты для интерфейса.',
 ];
+
+const ADMIN_PHONE = '89001000000';
+const PROFILE_HISTORY_PAGE_SIZE = 10;
 
 const loaderFlows = {
   lookupUser: [
@@ -188,6 +217,7 @@ const authPanel = document.getElementById('auth-panel');
 const onboardingPanel = document.getElementById('onboarding-panel');
 const dashboardPanel = document.getElementById('dashboard-panel');
 const adminPanel = document.getElementById('admin-panel');
+const adminMethodologyPanel = document.getElementById('admin-methodology-panel');
 const adminReportsPanel = document.getElementById('admin-reports-panel');
 const adminReportDetailPanel = document.getElementById('admin-report-detail-panel');
 const aiWelcomePanel = document.getElementById('ai-welcome-panel');
@@ -215,6 +245,8 @@ const featureList = document.getElementById('feature-list');
 const onboardingVisual = document.getElementById('onboarding-visual');
 const onboardingNext = document.getElementById('onboarding-next');
 const onboardingSkip = document.getElementById('onboarding-skip');
+const onboardingBackButton = document.getElementById('onboarding-back-button');
+const onboardingExitButton = document.getElementById('onboarding-exit-button');
 const dashboardGreeting = document.getElementById('dashboard-greeting');
 const dashboardUserName = document.getElementById('dashboard-user-name');
 const dashboardUserRole = document.getElementById('dashboard-user-role');
@@ -227,6 +259,9 @@ const assessmentCasesLabel = document.getElementById('assessment-cases-label');
 const assessmentProgressBar = document.getElementById('assessment-progress-bar');
 const assessmentProgressValue = document.getElementById('assessment-progress-value');
 const assessmentActionButton = document.getElementById('assessment-action-button');
+const assessmentPreparing = document.getElementById('assessment-preparing');
+const assessmentPreparingRing = document.getElementById('assessment-preparing-ring');
+const assessmentPreparingPercent = document.getElementById('assessment-preparing-percent');
 const availableAssessments = document.getElementById('available-assessments');
 const reportsList = document.getElementById('reports-list');
 const dashboardRestartButton = document.getElementById('dashboard-restart-button');
@@ -236,6 +271,7 @@ const adminAvatar = document.getElementById('admin-avatar');
 const adminLogoutButton = document.getElementById('admin-logout-button');
 const adminTitle = document.getElementById('admin-title');
 const adminSubtitle = document.getElementById('admin-subtitle');
+const adminOpenMethodologyButton = document.getElementById('admin-open-methodology-button');
 const adminOpenReportsButton = document.getElementById('admin-open-reports-button');
 const adminMetricsGrid = document.getElementById('admin-metrics-grid');
 const adminCompetencyChart = document.getElementById('admin-competency-chart');
@@ -245,6 +281,75 @@ const adminActivityTitle = document.getElementById('admin-activity-title');
 const adminPeriodSelect = document.getElementById('admin-period-select');
 const adminActivityAxis = document.getElementById('admin-activity-axis');
 const adminActivityChart = document.getElementById('admin-activity-chart');
+const adminMethodologyBackButton = document.getElementById('admin-methodology-back-button');
+const adminMethodologyTitle = document.getElementById('admin-methodology-title');
+const adminMethodologySubtitle = document.getElementById('admin-methodology-subtitle');
+const adminMethodologySearch = document.getElementById('admin-methodology-search');
+const adminMethodologyMetrics = document.getElementById('admin-methodology-metrics');
+const adminMethodologyTabPassports = document.getElementById('admin-methodology-tab-passports');
+const adminMethodologyTabLibrary = document.getElementById('admin-methodology-tab-library');
+const adminMethodologyTabBranches = document.getElementById('admin-methodology-tab-branches');
+const adminMethodologyPassportsView = document.getElementById('admin-methodology-passports-view');
+const adminMethodologyLibraryView = document.getElementById('admin-methodology-library-view');
+const adminMethodologyBranchesView = document.getElementById('admin-methodology-branches-view');
+const adminMethodologyCases = document.getElementById('admin-methodology-cases');
+const adminMethodologyPageSummary = document.getElementById('admin-methodology-page-summary');
+const adminMethodologyPageIndicator = document.getElementById('admin-methodology-page-indicator');
+const adminMethodologyPrevButton = document.getElementById('admin-methodology-prev-button');
+const adminMethodologyNextButton = document.getElementById('admin-methodology-next-button');
+const adminMethodologyPassports = document.getElementById('admin-methodology-passports');
+const adminMethodologyBranches = document.getElementById('admin-methodology-branches');
+const adminMethodologyCoverageBody = document.getElementById('admin-methodology-coverage-body');
+const adminMethodologySummary = document.getElementById('admin-methodology-summary');
+const adminMethodologySkillGaps = document.getElementById('admin-methodology-skill-gaps');
+const adminMethodologySinglePoints = document.getElementById('admin-methodology-single-points');
+const adminMethodologyCaseQuality = document.getElementById('admin-methodology-case-quality');
+const adminMethodologyDrawer = document.getElementById('admin-methodology-drawer');
+const adminMethodologyDrawerBackdrop = document.getElementById('admin-methodology-drawer-backdrop');
+const adminMethodologyDetailClose = document.getElementById('admin-methodology-detail-close');
+const adminMethodologyDetailEdit = document.getElementById('admin-methodology-detail-edit');
+const adminMethodologyDetailCancel = document.getElementById('admin-methodology-detail-cancel');
+const adminMethodologyDetailSave = document.getElementById('admin-methodology-detail-save');
+const adminMethodologyDetailSaveStatus = document.getElementById('admin-methodology-detail-save-status');
+const adminMethodologyDetailTitle = document.getElementById('admin-methodology-detail-title');
+const adminMethodologyDetailSubtitle = document.getElementById('admin-methodology-detail-subtitle');
+const adminMethodologyDetailCaseName = document.getElementById('admin-methodology-detail-case-name');
+const adminMethodologyDetailArtifact = document.getElementById('admin-methodology-detail-artifact');
+const adminMethodologyDetailStatus = document.getElementById('admin-methodology-detail-status');
+const adminMethodologyDetailTiming = document.getElementById('admin-methodology-detail-timing');
+const adminMethodologyDetailIntro = document.getElementById('admin-methodology-detail-intro');
+const adminMethodologyDetailFacts = document.getElementById('admin-methodology-detail-facts');
+const adminMethodologyDetailTask = document.getElementById('admin-methodology-detail-task');
+const adminMethodologyDetailConstraints = document.getElementById('admin-methodology-detail-constraints');
+const adminMethodologyDetailScenario = document.getElementById('admin-methodology-detail-scenario');
+const adminMethodologyDetailEditFields = document.getElementById('admin-methodology-detail-edit-fields');
+const adminMethodologyScenarioTemplate = document.getElementById('admin-methodology-scenario-template');
+const adminMethodologyScenarioPreview = document.getElementById('admin-methodology-scenario-preview');
+const adminMethodologyDetailRoles = document.getElementById('admin-methodology-detail-roles');
+const adminMethodologyDetailSkills = document.getElementById('admin-methodology-detail-skills');
+const adminMethodologyDetailPersonalization = document.getElementById('admin-methodology-detail-personalization');
+const adminMethodologyDetailPersonalizationTable = document.getElementById('admin-methodology-detail-personalization-table');
+const adminMethodologyDetailBlocks = document.getElementById('admin-methodology-detail-blocks');
+const adminMethodologyDetailRedflags = document.getElementById('admin-methodology-detail-redflags');
+const adminMethodologyDetailBlockers = document.getElementById('admin-methodology-detail-blockers');
+const adminMethodologyDetailChecks = document.getElementById('admin-methodology-detail-checks');
+const adminMethodologyDetailSignals = document.getElementById('admin-methodology-detail-signals');
+const adminMethodologyDetailHistory = document.getElementById('admin-methodology-detail-history');
+const adminMethodologyDrawerPanel = document.querySelector('.admin-methodology-drawer-panel');
+
+if (adminMethodologyScenarioTemplate) {
+  adminMethodologyScenarioTemplate.addEventListener('click', () => {
+    state.adminMethodologyScenarioMode = 'template';
+    renderAdminMethodologyDetail();
+  });
+}
+
+if (adminMethodologyScenarioPreview) {
+  adminMethodologyScenarioPreview.addEventListener('click', () => {
+    state.adminMethodologyScenarioMode = 'preview';
+    renderAdminMethodologyDetail();
+  });
+}
 const adminReportsBackButton = document.getElementById('admin-reports-back-button');
 const adminReportsTitle = document.getElementById('admin-reports-title');
 const adminReportsSubtitle = document.getElementById('admin-reports-subtitle');
@@ -276,12 +381,24 @@ const adminReportDetailSkillsRadarFallback = document.getElementById('admin-repo
 const adminReportDetailMbtiType = document.getElementById('admin-report-detail-mbti-type');
 const adminReportDetailMbtiSummary = document.getElementById('admin-report-detail-mbti-summary');
 const adminReportDetailMbtiAxes = document.getElementById('admin-report-detail-mbti-axes');
+const adminReportDetailInsightTitle = document.getElementById('admin-report-detail-insight-title');
+const adminReportDetailInsightText = document.getElementById('admin-report-detail-insight-text');
+const adminReportDetailBasis = document.getElementById('admin-report-detail-basis');
 const adminReportDetailStrengths = document.getElementById('admin-report-detail-strengths');
 const adminReportDetailGrowth = document.getElementById('admin-report-detail-growth');
 const adminReportDetailQuotes = document.getElementById('admin-report-detail-quotes');
+const adminReportDetailCases = document.getElementById('admin-report-detail-cases');
 const welcomeProfileButton = document.getElementById('welcome-profile-button');
 const startFirstAssessmentButton = document.getElementById('start-first-assessment');
 const libraryStartButton = document.getElementById('library-start-button');
+const welcomeAssessmentPreparing = document.getElementById('welcome-assessment-preparing');
+const welcomeAssessmentRing = document.getElementById('welcome-assessment-ring');
+const welcomeAssessmentPercent = document.getElementById('welcome-assessment-percent');
+const welcomeAssessmentTitle = document.getElementById('welcome-assessment-title');
+const welcomeAssessmentText = document.getElementById('welcome-assessment-text');
+const libraryAssessmentPreparing = document.getElementById('library-assessment-preparing');
+const libraryAssessmentRing = document.getElementById('library-assessment-ring');
+const libraryAssessmentPercent = document.getElementById('library-assessment-percent');
 const aiHeroDescription = document.getElementById('ai-hero-description');
 const newUserExitButton = document.getElementById('new-user-exit-button');
 const prechatStartButton = document.getElementById('prechat-start-button');
@@ -294,6 +411,9 @@ const interviewMessages = document.getElementById('interview-messages');
 const interviewSummary = document.getElementById('interview-summary');
 const interviewCompleteActions = document.getElementById('interview-complete-actions');
 const interviewGoProcessingButton = document.getElementById('interview-go-processing-button');
+const interviewBackButton = document.getElementById('interview-back-button');
+const interviewProfileButton = document.getElementById('interview-profile-button');
+const interviewExitButton = document.getElementById('interview-exit-button');
 const interviewForm = document.getElementById('interview-form');
 const interviewTextarea = document.getElementById('interview-textarea');
 const interviewSubmitButton = document.getElementById('interview-submit-button');
@@ -318,9 +438,11 @@ const processingPhaseLabel = document.getElementById('processing-phase-label');
 const reportHomeButton = document.getElementById('report-home-button');
 const reportDownloadButton = document.getElementById('report-download-button');
 const profileBackButton = document.getElementById('profile-back-button');
-const profileOpenReportsButton = document.getElementById('profile-open-reports-button');
+const appReleaseNumber = document.getElementById('app-release-number');
 const reportsBackButton = document.getElementById('reports-back-button');
 const profileAvatar = document.getElementById('profile-avatar');
+const profileAvatarImage = document.getElementById('profile-avatar-image');
+const profileAvatarInput = document.getElementById('profile-avatar-input');
 const profileName = document.getElementById('profile-name');
 const profileRole = document.getElementById('profile-role');
 const profileTotalAssessments = document.getElementById('profile-total-assessments');
@@ -329,15 +451,18 @@ const profileFullName = document.getElementById('profile-full-name');
 const profileEmail = document.getElementById('profile-email');
 const profilePhone = document.getElementById('profile-phone');
 const profileJobDescription = document.getElementById('profile-job-description');
+const profileCompanyIndustry = document.getElementById('profile-company-industry');
+const profileSaveStatus = document.getElementById('profile-save-status');
 const profileHistoryList = document.getElementById('profile-history-list');
-const profileResultsCaption = document.getElementById('profile-results-caption');
-const profileResultsBadge = document.getElementById('profile-results-badge');
-const profileSkillsList = document.getElementById('profile-skills-list');
 const reportOverallScore = document.getElementById('report-overall-score');
 const reportSummaryText = document.getElementById('report-summary-text');
 const reportProfileAvatar = document.getElementById('report-profile-avatar');
 const reportProfileName = document.getElementById('report-profile-name');
 const reportProfileRole = document.getElementById('report-profile-role');
+
+if (appReleaseNumber) {
+  appReleaseNumber.textContent = APP_RELEASE;
+}
 const reportRecommendations = document.getElementById('report-recommendations');
 const reportCompetencyBars = document.getElementById('report-competency-bars');
 const reportStrengthTitle = document.getElementById('report-strength-title');
@@ -392,6 +517,7 @@ const sanitizeDisplayMetaText = (value) => {
   if (
     normalized === 'не изменений' ||
     normalized === 'нет изменений' ||
+    normalized === 'нет измеенний' ||
     normalized === 'изменений нет' ||
     normalized === 'без изменений' ||
     normalized.includes('ничего не измен')
@@ -399,6 +525,62 @@ const sanitizeDisplayMetaText = (value) => {
     return '';
   }
   return String(value).trim();
+};
+
+const isAdminUserPayload = (user, explicitFlag = false) => {
+  if (explicitFlag) {
+    return true;
+  }
+  const digits = String(user?.phone || '').replace(/\D/g, '');
+  return digits === ADMIN_PHONE;
+};
+
+const buildExistingUserAgentMessage = (user, fallbackMessage = '') => {
+  if (!user) {
+    return fallbackMessage || '';
+  }
+
+  const name = String(user.full_name || 'пользователь').trim();
+  const position = sanitizeDisplayRole(user.job_description || '');
+  const duties = sanitizeDisplayMetaText(user.raw_duties || '');
+  let message = 'Пользователь найден: ' + name + '. ';
+
+  if (position || duties) {
+    message += 'Нужно ли внести изменения в должность и должностные обязанности? ';
+    if (!position && !duties) {
+      message += 'Если изменений нет, просто напишите, что профиль актуален или что ничего не изменилось. ';
+    } else {
+      message += 'Если изменений нет, просто напишите, что профиль актуален или что ничего не изменилось. ';
+    }
+    message += 'Если изменения есть, отправьте сначала актуальную должность.';
+    return message;
+  }
+
+  return message + 'Продолжим актуализацию профиля.';
+};
+
+const setProfileStatus = (text = '', tone = '') => {
+  profileSaveStatus.textContent = text;
+  profileSaveStatus.className = 'profile-save-status' + (tone ? ' ' + tone : '');
+  profileSaveStatus.hidden = !text;
+};
+
+const renderProfileAvatar = (user) => {
+  const avatarDataUrl = state.profileAvatarDraft != null
+    ? state.profileAvatarDraft
+    : (user?.avatar_data_url || null);
+
+  profileAvatar.textContent = buildInitials(user?.full_name || 'Пользователь');
+  if (avatarDataUrl) {
+    profileAvatarImage.src = avatarDataUrl;
+    profileAvatarImage.classList.remove('hidden');
+    profileAvatar.classList.add('hidden');
+    return;
+  }
+
+  profileAvatarImage.removeAttribute('src');
+  profileAvatarImage.classList.add('hidden');
+  profileAvatar.classList.remove('hidden');
 };
 
 const addMessage = (role, text) => {
@@ -556,11 +738,215 @@ const createOperationId = () => (
     : 'op-' + Date.now() + '-' + Math.random().toString(16).slice(2)
 );
 
+const stopAssessmentPreparationPolling = () => {
+  if (state.assessmentPreparationPollId) {
+    window.clearInterval(state.assessmentPreparationPollId);
+    state.assessmentPreparationPollId = null;
+  }
+};
+
+const canReusePreparedAssessment = () => {
+  if (hasIncompleteAssessment()) {
+    return true;
+  }
+  return Boolean(state.preparedAssessmentStartResponse);
+};
+
+const isAssessmentPreparing = () => state.assessmentPreparationStatus === 'preparing';
+
+const updatePreparingRing = (ring, percentNode, progressPercent) => {
+  if (!ring || !percentNode) {
+    return;
+  }
+  const normalized = Math.max(0, Math.min(100, Number(progressPercent || 0)));
+  ring.style.setProperty('--progress', normalized + '%');
+  percentNode.textContent = normalized + '%';
+};
+
+const renderAssessmentPreparationState = () => {
+  const status = state.assessmentPreparationStatus;
+  const progressPercent = Math.max(0, Math.min(100, Number(state.assessmentPreparationProgressPercent || 0)));
+  const title = state.assessmentPreparationTitle || 'Подготавливаем кейсы';
+  const message = state.assessmentPreparationMessage || 'Система собирает персонализированный набор кейсов.';
+  const ready = canReusePreparedAssessment();
+  const preparing = status === 'preparing' && !ready;
+  const failed = status === 'failed';
+
+  if (assessmentPreparing) {
+    assessmentPreparing.classList.toggle('hidden', !preparing);
+  }
+  if (preparing) {
+    assessmentStatusLabel.textContent = title;
+    assessmentCasesLabel.textContent = 'Подготовка персонализированных кейсов';
+    assessmentProgressBar.style.width = progressPercent + '%';
+    assessmentProgressValue.textContent = progressPercent + '%';
+  }
+  if (assessmentActionButton) {
+    assessmentActionButton.classList.toggle('hidden', preparing);
+    if (failed) {
+      assessmentActionButton.textContent = 'Подготовить кейсы';
+    }
+  }
+  updatePreparingRing(assessmentPreparingRing, assessmentPreparingPercent, progressPercent);
+
+  if (welcomeAssessmentPreparing) {
+    welcomeAssessmentPreparing.classList.toggle('hidden', !preparing);
+  }
+  if (startFirstAssessmentButton) {
+    startFirstAssessmentButton.classList.toggle('hidden', preparing);
+    if (failed) {
+      startFirstAssessmentButton.textContent = 'Подготовить кейсы';
+    }
+  }
+  if (welcomeAssessmentTitle) {
+    welcomeAssessmentTitle.textContent = title;
+  }
+  if (welcomeAssessmentText) {
+    welcomeAssessmentText.textContent = message;
+  }
+  updatePreparingRing(welcomeAssessmentRing, welcomeAssessmentPercent, progressPercent);
+
+  if (libraryAssessmentPreparing) {
+    libraryAssessmentPreparing.classList.toggle('hidden', !preparing);
+  }
+  if (libraryStartButton) {
+    libraryStartButton.classList.toggle('hidden', preparing);
+    if (failed) {
+      libraryStartButton.textContent = 'Подготовить';
+    }
+  }
+  updatePreparingRing(libraryAssessmentRing, libraryAssessmentPercent, progressPercent);
+
+  if (prechatStartButton) {
+    if (preparing) {
+      prechatStartButton.disabled = true;
+      prechatStartButton.textContent = 'Подготавливаем кейсы...';
+    } else {
+      prechatStartButton.disabled = false;
+      prechatStartButton.textContent = ready ? 'Начать' : (failed ? 'Подготовить кейсы' : 'Начать');
+    }
+  }
+};
+
+const startAssessmentPreparationPolling = (operationId) => {
+  stopAssessmentPreparationPolling();
+  if (!operationId) {
+    return;
+  }
+  const poll = async () => {
+    try {
+      const response = await fetch('/users/operations/' + operationId, {
+        credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        return;
+      }
+      const snapshot = await response.json();
+      if (state.assessmentPreparationOperationId !== operationId) {
+        stopAssessmentPreparationPolling();
+        return;
+      }
+      state.assessmentPreparationProgressPercent = Number(snapshot.progress_percent || 0);
+      state.assessmentPreparationTitle = snapshot.title || 'Подготавливаем кейсы';
+      state.assessmentPreparationMessage = snapshot.message || 'Система собирает персонализированный набор кейсов.';
+      if (snapshot.status === 'failed') {
+        state.assessmentPreparationStatus = 'failed';
+      }
+      renderAssessmentPreparationState();
+      if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+        stopAssessmentPreparationPolling();
+      }
+    } catch (_error) {
+      // keep background preparation resilient to short polling issues
+    }
+  };
+  void poll();
+  state.assessmentPreparationPollId = window.setInterval(() => {
+    void poll();
+  }, 500);
+};
+
+const shouldPrepareAssessmentInBackground = () => {
+  if (state.isAdmin || !state.pendingUser?.id) {
+    return false;
+  }
+  if (hasIncompleteAssessment()) {
+    return false;
+  }
+  if (state.currentScreen === 'interview' || state.currentScreen === 'processing' || state.currentScreen === 'report') {
+    return false;
+  }
+  return !state.preparedAssessmentStartResponse;
+};
+
+const beginAssessmentPreparation = async ({ force = false } = {}) => {
+  if (!state.pendingUser?.id || state.isAdmin) {
+    return;
+  }
+  if (!force && !shouldPrepareAssessmentInBackground()) {
+    renderAssessmentPreparationState();
+    return;
+  }
+  if (!force && isAssessmentPreparing()) {
+    return;
+  }
+
+  const operationId = createOperationId();
+  state.assessmentPreparationOperationId = operationId;
+  state.assessmentPreparationStatus = 'preparing';
+  state.assessmentPreparationProgressPercent = 3;
+  state.assessmentPreparationTitle = 'Подготавливаем кейсы';
+  state.assessmentPreparationMessage = 'Система собирает персонализированный набор кейсов для прохождения.';
+  renderAssessmentPreparationState();
+  startAssessmentPreparationPolling(operationId);
+
+  try {
+    const response = await fetch('/users/' + state.pendingUser.id + '/assessment/start', {
+      method: 'POST',
+      headers: {
+        'X-Agent4K-Operation-Id': operationId,
+      },
+    });
+    const data = await readApiResponse(response, 'Не удалось подготовить кейсы.');
+    if (state.assessmentPreparationOperationId !== operationId) {
+      return;
+    }
+    stopAssessmentPreparationPolling();
+    state.preparedAssessmentStartResponse = data;
+    state.assessmentPreparationStatus = 'ready';
+    state.assessmentPreparationProgressPercent = 100;
+    state.assessmentPreparationTitle = 'Кейсы готовы';
+    state.assessmentPreparationMessage = 'Можно переходить к прохождению ассессмента.';
+    state.assessmentSessionCode = data.session_code;
+    state.assessmentSessionId = data.session_id;
+    state.assessmentTotalCases = data.total_cases;
+    persistAssessmentContext();
+    renderAssessmentPreparationState();
+    renderAiWelcomeState();
+    renderDashboard();
+  } catch (error) {
+    if (state.assessmentPreparationOperationId !== operationId) {
+      return;
+    }
+    stopAssessmentPreparationPolling();
+    state.assessmentPreparationStatus = 'failed';
+    state.assessmentPreparationProgressPercent = 0;
+    state.assessmentPreparationTitle = 'Не удалось подготовить кейсы';
+    state.assessmentPreparationMessage = error.message || 'Попробуйте запустить подготовку еще раз.';
+    renderAssessmentPreparationState();
+  }
+};
+
 const STORAGE_KEYS = {
   pendingUser: 'agent4k.pendingUser',
   dashboard: 'agent4k.dashboard',
   isAdmin: 'agent4k.isAdmin',
   adminDashboard: 'agent4k.adminDashboard',
+  adminMethodology: 'agent4k.adminMethodology',
+  adminMethodologyDetail: 'agent4k.adminMethodologyDetail',
+  adminMethodologyDetailCode: 'agent4k.adminMethodologyDetailCode',
+  adminMethodologySearch: 'agent4k.adminMethodologySearch',
+  adminMethodologyTab: 'agent4k.adminMethodologyTab',
   adminReports: 'agent4k.adminReports',
   adminReportDetail: 'agent4k.adminReportDetail',
   adminReportDetailSessionId: 'agent4k.adminReportDetailSessionId',
@@ -629,6 +1015,15 @@ const persistAssessmentContext = () => {
   if (state.adminDashboard) {
     safeStorage.setItem(STORAGE_KEYS.adminDashboard, JSON.stringify(state.adminDashboard));
   }
+  if (state.adminMethodology) {
+    safeStorage.setItem(STORAGE_KEYS.adminMethodology, JSON.stringify(state.adminMethodology));
+  }
+  if (state.adminMethodologyDetail) {
+    safeStorage.setItem(STORAGE_KEYS.adminMethodologyDetail, JSON.stringify(state.adminMethodologyDetail));
+  }
+  if (state.adminMethodologyDetailCode) {
+    safeStorage.setItem(STORAGE_KEYS.adminMethodologyDetailCode, state.adminMethodologyDetailCode);
+  }
   if (state.adminReports) {
     safeStorage.setItem(STORAGE_KEYS.adminReports, JSON.stringify(state.adminReports));
   }
@@ -641,6 +1036,8 @@ const persistAssessmentContext = () => {
   if (state.adminPeriodKey) {
     safeStorage.setItem(STORAGE_KEYS.adminPeriodKey, state.adminPeriodKey);
   }
+  safeStorage.setItem(STORAGE_KEYS.adminMethodologySearch, state.adminMethodologySearch || '');
+  safeStorage.setItem(STORAGE_KEYS.adminMethodologyTab, state.adminMethodologyTab || 'library');
   safeStorage.setItem(STORAGE_KEYS.pendingRoleOptions, JSON.stringify(state.pendingRoleOptions || []));
   safeStorage.setItem(STORAGE_KEYS.adminReportsSearch, state.adminReportsSearch || '');
   safeStorage.setItem(STORAGE_KEYS.adminReportsPage, String(state.adminReportsPage || 1));
@@ -665,6 +1062,11 @@ const restoreAssessmentContext = () => {
     const storedSessionId = safeStorage.getItem(STORAGE_KEYS.assessmentSessionId);
     const storedIsAdmin = safeStorage.getItem(STORAGE_KEYS.isAdmin);
     const storedAdminDashboard = safeStorage.getItem(STORAGE_KEYS.adminDashboard);
+    const storedAdminMethodology = safeStorage.getItem(STORAGE_KEYS.adminMethodology);
+    const storedAdminMethodologyDetail = safeStorage.getItem(STORAGE_KEYS.adminMethodologyDetail);
+    const storedAdminMethodologyDetailCode = safeStorage.getItem(STORAGE_KEYS.adminMethodologyDetailCode);
+    const storedAdminMethodologySearch = safeStorage.getItem(STORAGE_KEYS.adminMethodologySearch);
+    const storedAdminMethodologyTab = safeStorage.getItem(STORAGE_KEYS.adminMethodologyTab);
     const storedAdminReports = safeStorage.getItem(STORAGE_KEYS.adminReports);
     const storedAdminReportDetail = safeStorage.getItem(STORAGE_KEYS.adminReportDetail);
     const storedAdminReportDetailSessionId = safeStorage.getItem(STORAGE_KEYS.adminReportDetailSessionId);
@@ -691,6 +1093,21 @@ const restoreAssessmentContext = () => {
     }
     if (storedAdminDashboard) {
       state.adminDashboard = JSON.parse(storedAdminDashboard);
+    }
+    if (storedAdminMethodology) {
+      state.adminMethodology = JSON.parse(storedAdminMethodology);
+    }
+    if (storedAdminMethodologyDetail) {
+      state.adminMethodologyDetail = JSON.parse(storedAdminMethodologyDetail);
+    }
+    if (storedAdminMethodologyDetailCode) {
+      state.adminMethodologyDetailCode = storedAdminMethodologyDetailCode;
+    }
+    if (storedAdminMethodologySearch) {
+      state.adminMethodologySearch = storedAdminMethodologySearch;
+    }
+    if (storedAdminMethodologyTab) {
+      state.adminMethodologyTab = storedAdminMethodologyTab;
     }
     if (storedAdminReports) {
       state.adminReports = JSON.parse(storedAdminReports);
@@ -742,10 +1159,15 @@ const restoreAssessmentContext = () => {
   }
 };
 
-const clearAssessmentContext = () => {
+const clearAssessmentStorage = () => {
   Object.values(STORAGE_KEYS).forEach((key) => {
     safeStorage.removeItem(key);
   });
+};
+
+const clearAssessmentContext = () => {
+  clearAssessmentStorage();
+  state.reportInterpretation = null;
 };
 
 const restoreAssessmentContextFromParams = (params) => {
@@ -793,10 +1215,15 @@ const restoreServerSession = async () => {
   }
   state.pendingUser = data.user;
   state.dashboard = data.dashboard || null;
-  state.isAdmin = Boolean(data.is_admin);
+  state.isAdmin = isAdminUserPayload(data.user, Boolean(data.is_admin));
   state.adminDashboard = data.admin_dashboard || null;
-  if (!state.currentScreen || state.currentScreen === 'auth') {
-    state.currentScreen = state.isAdmin ? 'admin' : state.dashboard ? 'dashboard' : 'chat';
+  if (state.isAdmin) {
+    state.sessionId = null;
+    state.pendingAgentMessage = null;
+    state.pendingRoleOptions = [];
+    state.currentScreen = 'admin';
+  } else if (!state.currentScreen || state.currentScreen === 'auth') {
+    state.currentScreen = state.dashboard ? 'dashboard' : 'chat';
   }
   persistAssessmentContext();
   return true;
@@ -813,10 +1240,15 @@ const restoreLocalUserSession = async () => {
   const data = await readApiResponse(response, 'Не удалось восстановить локальную пользовательскую сессию.');
   state.pendingUser = data.user;
   state.dashboard = data.dashboard;
-  state.isAdmin = Boolean(data.is_admin);
+  state.isAdmin = isAdminUserPayload(data.user, Boolean(data.is_admin));
   state.adminDashboard = data.admin_dashboard || null;
-  if (!state.currentScreen || state.currentScreen === 'auth') {
-    state.currentScreen = state.isAdmin ? 'admin' : 'dashboard';
+  if (state.isAdmin) {
+    state.sessionId = null;
+    state.pendingAgentMessage = null;
+    state.pendingRoleOptions = [];
+    state.currentScreen = 'admin';
+  } else if (!state.currentScreen || state.currentScreen === 'auth') {
+    state.currentScreen = 'dashboard';
   }
   persistAssessmentContext();
   return true;
@@ -831,6 +1263,7 @@ const logoutAndReturnToStart = async () => {
   } catch (_error) {
     // ignore logout network issues and still clear local state
   }
+  clearAssessmentContext();
   resetChat();
   window.history.replaceState({}, '', '/');
 };
@@ -862,7 +1295,8 @@ const navigateToScreen = (screen) => {
   window.location.replace('/?' + params.toString());
 };
 
-const syncUrlState = (screen) => {
+const syncUrlState = (screen, options = {}) => {
+  const { replace = false } = options;
   const params = new URLSearchParams();
   params.set('screen', screen);
   params.set('ui', String(Date.now()));
@@ -893,7 +1327,18 @@ const syncUrlState = (screen) => {
     params.set('total_cases', String(state.assessmentTotalCases));
   }
 
-  window.history.replaceState({}, '', '/?' + params.toString());
+  const nextUrl = '/?' + params.toString();
+  const currentUrl = window.location.pathname + window.location.search;
+  if (currentUrl === nextUrl) {
+    return;
+  }
+
+  if (replace || !window.history.state) {
+    window.history.replaceState({ screen }, '', nextUrl);
+    return;
+  }
+
+  window.history.pushState({ screen }, '', nextUrl);
 };
 
 const readApiResponse = async (response, fallbackMessage) => {
@@ -930,6 +1375,7 @@ const hideAllPanels = () => {
   onboardingPanel.classList.add('hidden');
   dashboardPanel.classList.add('hidden');
   adminPanel.classList.add('hidden');
+  adminMethodologyPanel.classList.add('hidden');
   adminReportsPanel.classList.add('hidden');
   adminReportDetailPanel.classList.add('hidden');
   aiWelcomePanel.classList.add('hidden');
@@ -996,6 +1442,13 @@ const resetChat = () => {
   state.processingAnimationDone = false;
   state.processingDataLoaded = false;
   state.processingAutoTransitionStarted = false;
+  stopAssessmentPreparationPolling();
+  state.assessmentPreparationStatus = 'idle';
+  state.assessmentPreparationProgressPercent = 0;
+  state.assessmentPreparationTitle = '';
+  state.assessmentPreparationMessage = '';
+  state.assessmentPreparationOperationId = null;
+  state.preparedAssessmentStartResponse = null;
   state.profileSummary = null;
   state.profileSelectedSessionId = null;
   state.profileSkillAssessments = [];
@@ -1040,8 +1493,8 @@ const setStatus = (data) => {
     return;
   }
 
-  const job = user.job_description || 'не указана';
-  const duties = user.raw_duties || 'не указаны';
+  const job = sanitizeDisplayRole(user.job_description || '') || 'не указана';
+  const duties = sanitizeDisplayMetaText(user.raw_duties || '') || 'не указаны';
   statusCard.textContent =
     'Сотрудник: ' + user.full_name + '\n' +
     'Телефон: ' + (user.phone || 'не указан') + '\n' +
@@ -1092,6 +1545,16 @@ const openChat = () => {
   chatInput.disabled = false;
   chatForm.querySelector('button').disabled = false;
   setStatus(state.pendingUser ? { user: state.pendingUser } : {});
+  if (
+    state.pendingUser &&
+    state.pendingAgentMessage &&
+    state.pendingAgentMessage.toLowerCase().includes('пользователь не найден')
+  ) {
+    state.pendingAgentMessage = buildExistingUserAgentMessage(
+      state.pendingUser,
+      state.pendingAgentMessage,
+    );
+  }
   if (state.pendingAgentMessage) {
     addMessage('bot', state.pendingAgentMessage);
   }
@@ -1199,6 +1662,1329 @@ const loadAdminDashboard = async (periodKey = state.adminPeriodKey || '30d') => 
   persistAssessmentContext();
 };
 
+const loadAdminMethodology = async () => {
+  const response = await fetch('/users/admin/methodology', {
+    credentials: 'same-origin',
+  });
+  const data = await readApiResponse(response, 'Не удалось загрузить раздел управления кейсами.');
+  state.adminMethodology = data;
+  persistAssessmentContext();
+};
+
+const loadAdminMethodologyDetail = async (caseIdCode) => {
+  const response = await fetch('/users/admin/methodology/cases/' + encodeURIComponent(caseIdCode), {
+    credentials: 'same-origin',
+  });
+  const data = await readApiResponse(response, 'Не удалось загрузить карточку кейса.');
+  state.adminMethodologyDetail = data;
+  state.adminMethodologyDetailCode = caseIdCode;
+  state.adminMethodologyEditMode = false;
+  state.adminMethodologySaving = false;
+  state.adminMethodologyDraft = null;
+  persistAssessmentContext();
+};
+
+const getAdminMethodologyCaseSummaryByCode = (caseIdCode) => {
+  const items = Array.isArray(state.adminMethodology?.cases) ? state.adminMethodology.cases : [];
+  return items.find((item) => item.case_id_code === caseIdCode) || null;
+};
+
+const saveAdminMethodologyDetail = async () => {
+  const caseIdCode = state.adminMethodologyDetailCode;
+  const draft = state.adminMethodologyDraft;
+  if (!caseIdCode || !draft) {
+    throw new Error('Карточка кейса не готова к сохранению.');
+  }
+  const response = await fetch('/users/admin/methodology/cases/' + encodeURIComponent(caseIdCode), {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draft),
+  });
+  const data = await readApiResponse(response, 'Не удалось сохранить изменения по кейсу.');
+  state.adminMethodologyDetail = data;
+  state.adminMethodologyEditMode = false;
+  state.adminMethodologySaving = false;
+  state.adminMethodologyDraft = null;
+  persistAssessmentContext();
+};
+
+const getFilteredAdminMethodologyCases = () => {
+  const items = Array.isArray(state.adminMethodology?.cases) ? state.adminMethodology.cases : [];
+  const query = String(state.adminMethodologySearch || '').trim().toLowerCase();
+  if (!query) {
+    return items;
+  }
+  return items.filter((item) => {
+    const haystack = [
+      item.title,
+      item.case_id_code,
+      item.type_code,
+      ...(Array.isArray(item.roles) ? item.roles : []),
+      ...(Array.isArray(item.skills) ? item.skills : []),
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+};
+
+const renderAdminMethodologyTab = () => {
+  const activeTab = state.adminMethodologyTab || 'passports';
+  if (adminMethodologyTabPassports) {
+    adminMethodologyTabPassports.classList.toggle('active', activeTab === 'passports');
+  }
+  if (adminMethodologyTabLibrary) {
+    adminMethodologyTabLibrary.classList.toggle('active', activeTab === 'library');
+  }
+  if (adminMethodologyTabBranches) {
+    adminMethodologyTabBranches.classList.toggle('active', activeTab === 'branches');
+  }
+  if (adminMethodologyPassportsView) {
+    adminMethodologyPassportsView.classList.toggle('hidden', activeTab !== 'passports');
+  }
+  if (adminMethodologyLibraryView) {
+    adminMethodologyLibraryView.classList.toggle('hidden', activeTab !== 'library');
+  }
+  if (adminMethodologyBranchesView) {
+    adminMethodologyBranchesView.classList.toggle('hidden', activeTab !== 'branches');
+  }
+};
+
+const closeAdminMethodologyDetail = () => {
+  state.adminMethodologyDetail = null;
+  state.adminMethodologyDetailCode = null;
+  state.adminMethodologyEditMode = false;
+  state.adminMethodologySaving = false;
+  state.adminMethodologyDraft = null;
+  persistAssessmentContext();
+  if (adminMethodologyDrawer) {
+    adminMethodologyDrawer.classList.add('hidden');
+  }
+};
+
+const renderMethodologyChips = (container, items, emptyLabel, tone = 'default') => {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  const values = Array.isArray(items) && items.length ? items : [emptyLabel];
+  values.forEach((item) => {
+    const chip = document.createElement('span');
+    chip.className = 'admin-methodology-chip ' + tone;
+    chip.textContent = item;
+    container.appendChild(chip);
+  });
+};
+
+const getAdminMethodologyDraftFromDetail = (detail) => ({
+  title: detail?.title || '',
+  difficulty_level: detail?.difficulty_level || 'base',
+  passport_status: detail?.passport_status || 'draft',
+  case_status: detail?.case_status || 'draft',
+  case_text_status: detail?.case_text_status || 'draft',
+  estimated_time_min: Number(detail?.estimated_time_min) || 0,
+  intro_context: detail?.intro_context || '',
+  facts_data: detail?.facts_data || '',
+  trigger_event: detail?.trigger_event || '',
+  trigger_details: detail?.trigger_details || '',
+  task_for_user: detail?.task_for_user || '',
+  constraints_text: detail?.constraints_text || '',
+  stakes_text: detail?.stakes_text || '',
+  role_ids: Array.isArray(detail?.selected_role_ids) ? [...detail.selected_role_ids] : [],
+  skill_ids: Array.isArray(detail?.selected_skill_ids) ? [...detail.selected_skill_ids] : [],
+});
+
+const setDetailNodeText = (node, text, fallback = '—') => {
+  if (!node) {
+    return;
+  }
+  node.textContent = text || fallback;
+};
+
+const escapeHtml = (value) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const setDetailNodeMultiline = (node, text, fallback, hiddenWhenEmpty = false) => {
+  if (!node) {
+    return;
+  }
+  const resolvedText = String(text || '').trim();
+  node.textContent = resolvedText || fallback;
+  node.classList.toggle('hidden', hiddenWhenEmpty && !resolvedText);
+};
+
+const getMethodologyStatusLabel = (status) => (
+  status === 'ready' ? 'Ready' : status === 'retired' ? 'Архив' : 'Draft'
+);
+
+const normalizePersonalizationCode = (value) => String(value || '')
+  .trim()
+  .replace(/[{}]/g, '')
+  .toLowerCase();
+
+const buildAdminMethodologyPersonalizationDefaults = (code) => {
+  const normalized = normalizePersonalizationCode(code);
+  const defaults = new Map([
+    ['роль_кратко', { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' }],
+    ['job_title', { value: 'менеджер команды сопровождения', source: 'из профиля пользователя' }],
+    ['industry', { value: 'сервиса и клиентской поддержки', source: 'из профиля пользователя' }],
+    ['сфера_деятельности_компании', { value: 'сервиса и клиентской поддержки', source: 'из профиля пользователя' }],
+    ['контекст_обязанностей', { value: 'сопровождение клиентских обращений и контроль качества сервиса', source: 'задано в шаблоне кейса' }],
+    ['процесс', { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' }],
+    ['процесс/сервис', { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' }],
+    ['процесс/задача', { value: 'обработка обращений клиентов', source: 'задано в шаблоне кейса' }],
+    ['пример_поведения', { value: 'сотрудник повторно закрывает обращения без решения', source: 'задано в шаблоне кейса' }],
+    ['влияние', { value: 'растет число повторных обращений', source: 'задано в шаблоне кейса' }],
+    ['срок', { value: '2 недели', source: 'задано в шаблоне кейса' }],
+    ['ресурсы_развития', { value: 'наставничество и еженедельные 1:1', source: 'задано в шаблоне кейса' }],
+    ['метрика', { value: 'доля повторных обращений', source: 'задано в шаблоне кейса' }],
+    ['стейкхолдер', { value: 'руководитель направления', source: 'задано в шаблоне кейса' }],
+    ['ограничение', { value: 'нельзя менять SLA без согласования', source: 'задано в шаблоне кейса' }],
+    ['ограничения/полномочия', { value: 'нельзя обещать решение без подтверждения смежной команды', source: 'задано в шаблоне кейса' }],
+    ['система', { value: 'Service Desk', source: 'задано в шаблоне кейса' }],
+    ['канал', { value: 'чат поддержки', source: 'задано в шаблоне кейса' }],
+    ['тип_клиента', { value: 'внутренний заказчик', source: 'задано в шаблоне кейса' }],
+    ['стейкхолдеры', { value: 'руководитель направления и смежная команда', source: 'задано в шаблоне кейса' }],
+    ['описание_проблемы', { value: 'обращение закрыто без фактического решения', source: 'задано в шаблоне кейса' }],
+    ['sla/срок', { value: 'до конца рабочего дня', source: 'задано в шаблоне кейса' }],
+    ['критичное_действие_/_этап_процесса', { value: 'завершение клиентского запроса', source: 'задано в шаблоне кейса' }],
+    ['id_обращения', { value: 'INC-48217', source: 'задано в шаблоне кейса' }],
+    ['время_жалобы', { value: '16:40', source: 'задано в шаблоне кейса' }],
+    ['что_зафиксировано_в_системе', { value: 'обращение закрыто с пометкой выполнено', source: 'задано в шаблоне кейса' }],
+    ['что_осталось_нерешённым', { value: 'клиент не получил ожидаемый результат', source: 'задано в шаблоне кейса' }],
+    ['последствие_для_процесса', { value: 'сдвигается следующий этап работы клиента', source: 'задано в шаблоне кейса' }],
+    ['ответственная_команда_/_специалист', { value: 'команда сопровождения второй линии', source: 'задано в шаблоне кейса' }],
+    ['руководитель_/_дежурный_/_владелец_процесса', { value: 'дежурный руководитель смены', source: 'задано в шаблоне кейса' }],
+    ['риск', { value: 'эскалация повторных обращений', source: 'задано в шаблоне кейса' }],
+    ['триггер', { value: 'жалоба на закрытие обращения без решения', source: 'задано в шаблоне кейса' }],
+  ]);
+  if (defaults.has(normalized)) {
+    return defaults.get(normalized);
+  }
+  return {
+    value: '',
+    source: normalized.includes('роль') || normalized.includes('industry') ? 'из профиля пользователя' : 'задано в шаблоне кейса',
+  };
+};
+
+const expandAdminMethodologyRoleLabel = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'm') {
+    return 'Менеджер';
+  }
+  if (normalized === 'l') {
+    return 'Линейный сотрудник';
+  }
+  if (normalized === 'leader') {
+    return 'Лидер';
+  }
+  return String(value || '').trim();
+};
+
+const extractAdminMethodologyPlaceholders = (text) => {
+  const matches = String(text || '').match(/\{[^}]+\}/g) || [];
+  return Array.from(new Set(matches.map((item) => normalizePersonalizationCode(item)).filter(Boolean)));
+};
+
+const collectAdminMethodologyScenarioText = (source) => {
+  const parts = [
+    source?.intro_context,
+    source?.facts_data,
+    source?.task_for_user,
+    source?.constraints_text,
+  ].map((item) => String(item || '').trim()).filter(Boolean);
+  return parts.join('\n\n');
+};
+
+const collectAdminMethodologyPersonalizationRows = (detail, scenarioText) => {
+  const fromText = extractAdminMethodologyPlaceholders(scenarioText);
+  const fromStored = extractAdminMethodologyPlaceholders(detail?.personalization_variables || '');
+  const fromDetail = Array.isArray(detail?.personalization_fields)
+    ? detail.personalization_fields.map((item) => normalizePersonalizationCode(item))
+    : [];
+  const codes = Array.from(new Set([...fromText, ...fromStored, ...fromDetail])).filter(Boolean);
+  return codes.map((code) => {
+    const fallback = buildAdminMethodologyPersonalizationDefaults(code);
+    const source = fallback.source;
+    return {
+      code,
+      label: code,
+      value: source === 'из профиля пользователя'
+        ? 'Сформируется из профиля пользователя'
+        : 'Сформируется автоматически по шаблону кейса',
+      source,
+    };
+  });
+};
+
+const buildAdminMethodologyScenarioMarkup = (text, personalizationRows, mode) => {
+  const safeText = escapeHtml(String(text || '').trim() || 'Текст кейса пока не заполнен.');
+  if (mode !== 'preview') {
+    return safeText.replace(/\n/g, '<br>');
+  }
+  const valueMap = new Map(personalizationRows.map((item) => [normalizePersonalizationCode(item.code), item.value]));
+  return safeText
+    .replace(/\{([^}]+)\}/g, (_, rawCode) => {
+      const code = normalizePersonalizationCode(rawCode);
+      return '<span class="admin-methodology-inline-variable">' + escapeHtml(valueMap.get(code) || ('{' + rawCode + '}')) + '</span>';
+    })
+    .replace(/\n/g, '<br>');
+};
+
+const renderAdminMethodologyPersonalizationTable = (rows) => {
+  if (!adminMethodologyDetailPersonalizationTable) {
+    return;
+  }
+  if (!rows.length) {
+    adminMethodologyDetailPersonalizationTable.innerHTML = '<p class="report-empty-state">Переменные персонализации пока не заданы.</p>';
+    return;
+  }
+  adminMethodologyDetailPersonalizationTable.innerHTML =
+    '<div class="admin-methodology-personalization-row admin-methodology-personalization-head">' +
+      '<span>Переменная</span>' +
+      '<span>Значение</span>' +
+      '<span>Источник</span>' +
+    '</div>' +
+    rows.map((row) => (
+      '<div class="admin-methodology-personalization-row">' +
+        '<span class="admin-methodology-personalization-code">{' + escapeHtml(row.code) + '}</span>' +
+        '<span>' + escapeHtml(row.value) + '</span>' +
+        '<span class="admin-methodology-personalization-source">' + escapeHtml(row.source) + '</span>' +
+      '</div>'
+    )).join('');
+};
+
+const syncAdminMethodologyPersonalizationVariables = () => {};
+
+const getAdminMethodologyPersonalizationOptionMap = (detail) => {
+  const map = new Map();
+  (detail?.personalization_options || []).forEach((option) => {
+    const code = normalizePersonalizationCode(option.field_code);
+    if (!code) {
+      return;
+    }
+    map.set(code, option);
+  });
+  return map;
+};
+
+const buildAdminMethodologyPersonalizationItem = (detail, fieldCode, overrides = {}) => {
+  const code = normalizePersonalizationCode(fieldCode);
+  const option = getAdminMethodologyPersonalizationOptionMap(detail).get(code);
+  const fallback = buildAdminMethodologyPersonalizationDefaults(code);
+  return {
+    field_code: code,
+    field_label: overrides.field_label || option?.field_name || fallback.label || code,
+    field_value_template: overrides.field_value_template ?? fallback.value ?? '',
+    source_type: overrides.source_type || option?.source_type || (fallback.source === 'из профиля пользователя' ? 'from_user_profile' : 'static'),
+    is_required: Boolean(overrides.is_required ?? option?.is_required),
+    display_order: Number(overrides.display_order) || 1,
+  };
+};
+
+const ensureAdminMethodologyPersonalizationDraft = (detail) => {
+  if (!state.adminMethodologyDraft) {
+    return [];
+  }
+  if (!Array.isArray(state.adminMethodologyDraft.personalization_items)) {
+    state.adminMethodologyDraft.personalization_items = [];
+  }
+  if (!state.adminMethodologyDraft.personalization_items.length) {
+    const codes = collectAdminMethodologyPersonalizationRows(detail, collectAdminMethodologyScenarioText(state.adminMethodologyDraft))
+      .map((item) => normalizePersonalizationCode(item.code));
+    state.adminMethodologyDraft.personalization_items = codes.map((code, index) => ({
+      ...buildAdminMethodologyPersonalizationItem(detail, code),
+      display_order: index + 1,
+    }));
+    syncAdminMethodologyPersonalizationVariables();
+  }
+  return state.adminMethodologyDraft.personalization_items;
+};
+
+const getNextAdminMethodologyPersonalizationCode = (detail) => {
+  const usedCodes = new Set(
+    (state.adminMethodologyDraft?.personalization_items || []).map((item) => normalizePersonalizationCode(item.field_code)),
+  );
+  const available = (detail?.personalization_options || [])
+    .map((item) => normalizePersonalizationCode(item.field_code))
+    .find((code) => code && !usedCodes.has(code));
+  if (available) {
+    return available;
+  }
+  let index = 1;
+  while (usedCodes.has('новая_переменная_' + index)) {
+    index += 1;
+  }
+  return 'новая_переменная_' + index;
+};
+
+const updateAdminMethodologyPlaceholderAcrossDraft = (fromCode, toCode) => {
+  if (!state.adminMethodologyDraft || !fromCode || fromCode === toCode) {
+    return;
+  }
+  const pattern = new RegExp('\\{\\s*' + fromCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}', 'gi');
+  ['intro_context', 'facts_data', 'task_for_user', 'constraints_text'].forEach((key) => {
+    state.adminMethodologyDraft[key] = String(state.adminMethodologyDraft[key] || '').replace(pattern, '{' + toCode + '}');
+  });
+};
+
+const removeAdminMethodologyPlaceholderFromDraft = (fieldCode) => {
+  if (!state.adminMethodologyDraft || !fieldCode) {
+    return;
+  }
+  const escaped = fieldCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp('\\{\\s*' + escaped + '\\s*\\}', 'gi');
+  ['intro_context', 'facts_data', 'task_for_user', 'constraints_text'].forEach((key) => {
+    state.adminMethodologyDraft[key] = String(state.adminMethodologyDraft[key] || '')
+      .replace(pattern, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  });
+};
+
+const addAdminMethodologyPersonalizationItem = () => {
+  if (!state.adminMethodologyDraft || !state.adminMethodologyDetail) {
+    return;
+  }
+  const items = ensureAdminMethodologyPersonalizationDraft(state.adminMethodologyDetail);
+  const nextCode = getNextAdminMethodologyPersonalizationCode(state.adminMethodologyDetail);
+  items.push({
+    ...buildAdminMethodologyPersonalizationItem(state.adminMethodologyDetail, nextCode),
+    display_order: items.length + 1,
+  });
+  syncAdminMethodologyPersonalizationVariables();
+  insertAdminMethodologyPlaceholder(nextCode);
+  renderAdminMethodologyDetail();
+};
+
+const updateAdminMethodologyPersonalizationItem = (index, patch) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const items = ensureAdminMethodologyPersonalizationDraft(state.adminMethodologyDetail);
+  const current = items[index];
+  if (!current) {
+    return;
+  }
+  const nextCode = patch.field_code ? normalizePersonalizationCode(patch.field_code) : current.field_code;
+  const duplicateIndex = items.findIndex((item, itemIndex) => itemIndex !== index && normalizePersonalizationCode(item.field_code) === nextCode);
+  if (duplicateIndex >= 0) {
+    return;
+  }
+  if (patch.field_code && nextCode && nextCode !== normalizePersonalizationCode(current.field_code)) {
+    updateAdminMethodologyPlaceholderAcrossDraft(normalizePersonalizationCode(current.field_code), nextCode);
+  }
+  const option = getAdminMethodologyPersonalizationOptionMap(state.adminMethodologyDetail).get(nextCode);
+  items[index] = {
+    ...current,
+    ...patch,
+    field_code: nextCode,
+    field_label: patch.field_label ?? option?.field_name ?? current.field_label,
+    source_type: patch.source_type || current.source_type || option?.source_type || 'static',
+    display_order: index + 1,
+  };
+  syncAdminMethodologyPersonalizationVariables();
+  refreshAdminMethodologyScenarioSection(state.adminMethodologyDetail, state.adminMethodologyDraft);
+  renderAdminMethodologyPersonalizationEditor(state.adminMethodologyDetail, state.adminMethodologyDraft);
+};
+
+const removeAdminMethodologyPersonalizationItem = (index) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const items = ensureAdminMethodologyPersonalizationDraft(state.adminMethodologyDetail);
+  const removed = items[index];
+  if (!removed) {
+    return;
+  }
+  removeAdminMethodologyPlaceholderFromDraft(normalizePersonalizationCode(removed.field_code));
+  items.splice(index, 1);
+  items.forEach((item, itemIndex) => {
+    item.display_order = itemIndex + 1;
+  });
+  syncAdminMethodologyPersonalizationVariables();
+  refreshAdminMethodologyScenarioSection(state.adminMethodologyDetail, state.adminMethodologyDraft);
+  renderAdminMethodologyDetail();
+};
+
+const insertAdminMethodologyPlaceholder = (fieldCode) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const normalizedCode = normalizePersonalizationCode(fieldCode);
+  if (!normalizedCode) {
+    return;
+  }
+  const placeholder = '{' + normalizedCode + '}';
+  const fieldKey = ['intro_context', 'facts_data', 'task_for_user', 'constraints_text'].includes(state.adminMethodologyActiveTextField)
+    ? state.adminMethodologyActiveTextField
+    : 'intro_context';
+  const target = document.querySelector('[data-field-key="' + fieldKey + '"]');
+  const currentValue = String(state.adminMethodologyDraft[fieldKey] || '');
+  if (currentValue.includes(placeholder)) {
+    return;
+  }
+  let nextValue = currentValue;
+  if (target && typeof target.selectionStart === 'number' && typeof target.selectionEnd === 'number') {
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const prefix = currentValue.slice(0, start);
+    const suffix = currentValue.slice(end);
+    const spacerBefore = prefix && !/\s$/.test(prefix) ? ' ' : '';
+    const spacerAfter = suffix && !/^\s/.test(suffix) ? ' ' : '';
+    nextValue = prefix + spacerBefore + placeholder + spacerAfter + suffix;
+    state.adminMethodologyDraft[fieldKey] = nextValue;
+    target.value = nextValue;
+    const cursorPosition = prefix.length + spacerBefore.length + placeholder.length;
+    target.focus();
+    target.selectionStart = cursorPosition;
+    target.selectionEnd = cursorPosition;
+  } else {
+    nextValue = currentValue ? currentValue + '\n' + placeholder : placeholder;
+    state.adminMethodologyDraft[fieldKey] = nextValue;
+  }
+  refreshAdminMethodologyScenarioSection(state.adminMethodologyDetail, state.adminMethodologyDraft);
+};
+
+
+const refreshAdminMethodologyScenarioSection = (detail, source) => {
+  const scenarioText = collectAdminMethodologyScenarioText(source);
+  const personalizationRows = collectAdminMethodologyPersonalizationRows(source, scenarioText);
+  const scenarioMode = state.adminMethodologyScenarioMode || 'template';
+  if (adminMethodologyDetailScenario) {
+    adminMethodologyDetailScenario.innerHTML = state.adminMethodologyEditMode
+      ? '<div class="admin-methodology-edit-hint">Редактируйте текст шаблона в полях ниже. Здесь показывается только компактная область просмотра.</div>'
+      : buildAdminMethodologyScenarioMarkup(scenarioText, personalizationRows, scenarioMode);
+  }
+  renderAdminMethodologyPersonalizationTable(personalizationRows);
+};
+
+const renderAdminMethodologyEditorField = (node, kind, config) => {
+  if (!node) {
+    return;
+  }
+  node.innerHTML = '';
+  let control;
+  if (kind === 'textarea') {
+    control = document.createElement('textarea');
+    control.rows = config.rows || 4;
+  } else if (kind === 'select') {
+    control = document.createElement('select');
+    (config.options || []).forEach((option) => {
+      const item = document.createElement('option');
+      item.value = option.value;
+      item.textContent = option.label;
+      item.selected = String(option.value) === String(config.value);
+      control.appendChild(item);
+    });
+  } else {
+    control = document.createElement('input');
+    control.type = kind === 'number' ? 'number' : 'text';
+  }
+  control.className = 'admin-methodology-input';
+  if (config.fieldKey) {
+    control.dataset.fieldKey = config.fieldKey;
+    control.addEventListener('focus', () => {
+      state.adminMethodologyActiveTextField = config.fieldKey;
+    });
+  }
+  control.value = config.value ?? '';
+  if (config.placeholder) {
+    control.placeholder = config.placeholder;
+  }
+  if (kind === 'number') {
+    control.min = '0';
+    control.step = '1';
+  }
+  control.addEventListener('input', (event) => {
+    config.onChange(event.target.value);
+  });
+  node.appendChild(control);
+};
+
+const renderAdminMethodologySelectionChips = (container, options, selectedIds, onToggle, emptyLabel) => {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  if (!Array.isArray(options) || !options.length) {
+    renderMethodologyChips(container, [], emptyLabel, 'muted');
+    return;
+  }
+  options.forEach((option) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'admin-methodology-chip admin-methodology-chip-button';
+    if (selectedIds.includes(option.id)) {
+      button.classList.add('selected');
+    } else {
+      button.classList.add('muted');
+    }
+    button.textContent = option.name || option.skill_name;
+    if (option.competency_name) {
+      button.title = option.competency_name;
+    }
+    button.addEventListener('click', () => onToggle(option.id));
+    container.appendChild(button);
+  });
+};
+
+const toggleAdminMethodologyRole = (roleId) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const selectedIds = new Set(state.adminMethodologyDraft.role_ids || []);
+  if (selectedIds.has(roleId)) {
+    selectedIds.delete(roleId);
+  } else {
+    selectedIds.add(roleId);
+  }
+  state.adminMethodologyDraft.role_ids = Array.from(selectedIds);
+  renderAdminMethodologyDetail();
+};
+
+const toggleAdminMethodologySkill = (skillId) => {
+  if (!state.adminMethodologyDraft) {
+    return;
+  }
+  const selectedIds = new Set(state.adminMethodologyDraft.skill_ids || []);
+  if (selectedIds.has(skillId)) {
+    selectedIds.delete(skillId);
+  } else {
+    selectedIds.add(skillId);
+  }
+  state.adminMethodologyDraft.skill_ids = Array.from(selectedIds);
+  renderAdminMethodologyDetail();
+};
+
+const renderAdminMethodologyDetail = () => {
+  const detail = state.adminMethodologyDetail;
+  if (!detail || !adminMethodologyDrawer) {
+    return;
+  }
+  const isEditing = Boolean(state.adminMethodologyEditMode);
+  const draft = state.adminMethodologyDraft || getAdminMethodologyDraftFromDetail(detail);
+  const scenarioSource = isEditing ? draft : detail;
+  const scenarioMode = state.adminMethodologyScenarioMode || 'template';
+
+  adminMethodologyDetailTitle.textContent = detail.title || 'Кейс';
+  adminMethodologyDetailSubtitle.textContent = (detail.type_code || '—') + ' · ' + (detail.type_name || 'Тип кейса');
+  if (adminMethodologyDetailEdit) {
+    adminMethodologyDetailEdit.classList.toggle('hidden', isEditing);
+  }
+  if (adminMethodologyDetailCancel) {
+    adminMethodologyDetailCancel.classList.toggle('hidden', !isEditing);
+  }
+  if (adminMethodologyDetailSave) {
+    adminMethodologyDetailSave.classList.toggle('hidden', !isEditing);
+    adminMethodologyDetailSave.disabled = state.adminMethodologySaving;
+  }
+  if (adminMethodologyDetailSaveStatus) {
+    adminMethodologyDetailSaveStatus.classList.toggle('hidden', !state.adminMethodologySaving);
+  }
+  if (adminMethodologyDrawerPanel) {
+    adminMethodologyDrawerPanel.classList.toggle('editing', isEditing);
+  }
+  if (adminMethodologyDetailEditFields) {
+    adminMethodologyDetailEditFields.classList.toggle('hidden', !isEditing);
+  }
+  if (adminMethodologyScenarioTemplate) {
+    adminMethodologyScenarioTemplate.classList.toggle('active', scenarioMode === 'template');
+  }
+  if (adminMethodologyScenarioPreview) {
+    adminMethodologyScenarioPreview.classList.toggle('active', scenarioMode === 'preview');
+  }
+  refreshAdminMethodologyScenarioSection(detail, scenarioSource);
+
+  if (isEditing) {
+    renderAdminMethodologyEditorField(adminMethodologyDetailCaseName, 'text', {
+      value: draft.title,
+      placeholder: 'Введите название кейса',
+      onChange: (value) => {
+        state.adminMethodologyDraft.title = value;
+      },
+    });
+    setDetailNodeText(adminMethodologyDetailArtifact, detail.artifact_name || '—');
+    adminMethodologyDetailStatus.innerHTML = '';
+    const statusWrap = document.createElement('div');
+    statusWrap.className = 'admin-methodology-inline-controls admin-methodology-status-controls';
+    [
+      { key: 'passport_status', label: 'Тип' },
+      { key: 'case_status', label: 'Кейс' },
+      { key: 'case_text_status', label: 'Текст' },
+    ].forEach((field) => {
+      const fieldWrap = document.createElement('label');
+      fieldWrap.className = 'admin-methodology-status-field';
+      const caption = document.createElement('span');
+      caption.textContent = field.label;
+      const select = document.createElement('select');
+      select.className = 'admin-methodology-input';
+      [
+        { value: 'draft', label: 'Draft' },
+        { value: 'ready', label: 'Ready' },
+        { value: 'retired', label: 'Архив' },
+      ].forEach((item) => {
+        const option = document.createElement('option');
+        option.value = item.value;
+        option.textContent = item.label;
+        option.selected = item.value === draft[field.key];
+        select.appendChild(option);
+      });
+      select.addEventListener('input', (event) => {
+        state.adminMethodologyDraft[field.key] = event.target.value;
+      });
+      fieldWrap.appendChild(caption);
+      fieldWrap.appendChild(select);
+      statusWrap.appendChild(fieldWrap);
+    });
+    adminMethodologyDetailStatus.appendChild(statusWrap);
+    adminMethodologyDetailTiming.innerHTML = '';
+    const timingWrap = document.createElement('div');
+    timingWrap.className = 'admin-methodology-inline-controls';
+    const difficultySelect = document.createElement('select');
+    difficultySelect.className = 'admin-methodology-input';
+    [
+      {value: 'base', label: 'Base'},
+      {value: 'hard', label: 'Hard'},
+    ].forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.value;
+      option.textContent = item.label;
+      option.selected = item.value === draft.difficulty_level;
+      difficultySelect.appendChild(option);
+    });
+    difficultySelect.addEventListener('input', (event) => {
+      state.adminMethodologyDraft.difficulty_level = event.target.value;
+    });
+    const timingInput = document.createElement('input');
+    timingInput.type = 'number';
+    timingInput.min = '0';
+    timingInput.step = '1';
+    timingInput.className = 'admin-methodology-input';
+    timingInput.placeholder = 'Минуты';
+    timingInput.value = draft.estimated_time_min || '';
+    timingInput.addEventListener('input', (event) => {
+      state.adminMethodologyDraft.estimated_time_min = Number(event.target.value) || 0;
+    });
+    timingWrap.appendChild(difficultySelect);
+    timingWrap.appendChild(timingInput);
+    adminMethodologyDetailTiming.appendChild(timingWrap);
+    renderAdminMethodologyEditorField(adminMethodologyDetailIntro, 'textarea', {
+      fieldKey: 'intro_context',
+      value: draft.intro_context,
+      rows: 5,
+      placeholder: 'Контекст кейса',
+      onChange: (value) => {
+        state.adminMethodologyDraft.intro_context = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
+      },
+    });
+    renderAdminMethodologyEditorField(adminMethodologyDetailFacts, 'textarea', {
+      fieldKey: 'facts_data',
+      value: draft.facts_data,
+      rows: 4,
+      placeholder: 'Дополнительные факты и данные',
+      onChange: (value) => {
+        state.adminMethodologyDraft.facts_data = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
+      },
+    });
+    renderAdminMethodologyEditorField(adminMethodologyDetailTask, 'textarea', {
+      fieldKey: 'task_for_user',
+      value: draft.task_for_user,
+      rows: 5,
+      placeholder: 'Задача для пользователя',
+      onChange: (value) => {
+        state.adminMethodologyDraft.task_for_user = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
+      },
+    });
+    renderAdminMethodologyEditorField(adminMethodologyDetailConstraints, 'textarea', {
+      fieldKey: 'constraints_text',
+      value: draft.constraints_text,
+      rows: 4,
+      placeholder: 'Ограничения и ставки',
+      onChange: (value) => {
+        state.adminMethodologyDraft.constraints_text = value;
+        refreshAdminMethodologyScenarioSection(detail, state.adminMethodologyDraft);
+      },
+    });
+    adminMethodologyDetailFacts.classList.remove('hidden');
+    adminMethodologyDetailConstraints.classList.remove('hidden');
+    renderAdminMethodologySelectionChips(
+      adminMethodologyDetailRoles,
+      detail.role_options || [],
+      draft.role_ids || [],
+      toggleAdminMethodologyRole,
+      'Роли не заданы',
+    );
+    renderAdminMethodologySelectionChips(
+      adminMethodologyDetailSkills,
+      (detail.skill_options || []).map((item) => ({
+        id: item.id,
+        name: item.skill_name,
+        competency_name: item.competency_name,
+      })),
+      draft.skill_ids || [],
+      toggleAdminMethodologySkill,
+      'Навыки не заданы',
+    );
+  } else {
+    setDetailNodeText(adminMethodologyDetailCaseName, detail.title || '—');
+    setDetailNodeText(adminMethodologyDetailArtifact, detail.artifact_name || '—');
+    setDetailNodeText(
+      adminMethodologyDetailStatus,
+      'Тип: ' + getMethodologyStatusLabel(detail.passport_status) +
+        ' · Кейс: ' + getMethodologyStatusLabel(detail.case_status) +
+        ' · Текст: ' + getMethodologyStatusLabel(detail.case_text_status) +
+        ' · ' + (detail.difficulty_level === 'hard' ? 'Hard' : 'Base') +
+        ' · кейс v' + (detail.case_registry_version || 1) +
+        ' / текст v' + (detail.case_text_version || 1),
+    );
+    setDetailNodeText(
+      adminMethodologyDetailTiming,
+      detail.estimated_time_min ? detail.estimated_time_min + ' минут' : 'Время не задано',
+    );
+    setDetailNodeMultiline(adminMethodologyDetailIntro, detail.intro_context, 'Контекст кейса пока не заполнен.');
+    setDetailNodeMultiline(adminMethodologyDetailFacts, detail.facts_data, 'Дополнительные факты не заданы.', true);
+    setDetailNodeMultiline(adminMethodologyDetailTask, detail.task_for_user, 'Задача кейса пока не заполнена.');
+    setDetailNodeMultiline(adminMethodologyDetailConstraints, detail.constraints_text, 'Ограничения не заданы.', true);
+    renderMethodologyChips(adminMethodologyDetailRoles, detail.roles, 'Роли не заданы');
+    renderMethodologyChips(adminMethodologyDetailSkills, detail.skills, 'Навыки не заданы');
+  }
+
+  renderMethodologyChips(adminMethodologyDetailPersonalization, detail.personalization_fields, 'Персонализация не задана', 'muted');
+  if (adminMethodologyDetailPersonalization && adminMethodologyDetailPersonalization.parentElement) {
+    adminMethodologyDetailPersonalization.parentElement.classList.add('hidden');
+  }
+
+  adminMethodologyDetailBlocks.innerHTML = '';
+  (detail.required_blocks && detail.required_blocks.length ? detail.required_blocks : ['Блоки ответа не заданы.']).forEach((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    adminMethodologyDetailBlocks.appendChild(item);
+  });
+
+  adminMethodologyDetailRedflags.innerHTML = '';
+  (detail.red_flags && detail.red_flags.length ? detail.red_flags : ['Red flags не заданы.']).forEach((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    adminMethodologyDetailRedflags.appendChild(item);
+  });
+
+  adminMethodologyDetailBlockers.innerHTML = '';
+  (detail.qa_blockers && detail.qa_blockers.length ? detail.qa_blockers : ['Критических блокеров сейчас нет.']).forEach((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    adminMethodologyDetailBlockers.appendChild(item);
+  });
+
+  adminMethodologyDetailChecks.innerHTML = '';
+  (detail.quality_checks || []).forEach((check) => {
+    const item = document.createElement('div');
+    item.className = 'admin-methodology-check-item ' + (check.passed ? 'passed' : 'failed');
+    item.innerHTML =
+      '<strong>' + check.name + '</strong>' +
+      '<span>' + (check.passed ? 'OK' : 'Проверить') + '</span>' +
+      (check.comment ? '<small>' + check.comment + '</small>' : '');
+    adminMethodologyDetailChecks.appendChild(item);
+  });
+  if (!detail.quality_checks || !detail.quality_checks.length) {
+    adminMethodologyDetailChecks.innerHTML = '<p class="report-empty-state">QA-проверки пока не рассчитаны.</p>';
+  }
+
+  adminMethodologyDetailSignals.innerHTML = '';
+  (detail.skill_signals && detail.skill_signals.length ? detail.skill_signals : []).forEach((signal) => {
+    const card = document.createElement('article');
+    card.className = 'admin-methodology-signal-card';
+    card.innerHTML =
+      '<div class="admin-methodology-signal-head">' +
+        '<strong>' + signal.skill_name + '</strong>' +
+        '<span>' + signal.competency_name + '</span>' +
+      '</div>' +
+      '<p>' + signal.evidence_description + '</p>' +
+      '<small>' + ((signal.related_response_block_code || 'response') + (signal.expected_signal ? ' · ' + signal.expected_signal : '')) + '</small>';
+    adminMethodologyDetailSignals.appendChild(card);
+  });
+  if (!detail.skill_signals || !detail.skill_signals.length) {
+    adminMethodologyDetailSignals.innerHTML = '<p class="report-empty-state">Сигналы по навыкам пока не заданы.</p>';
+  }
+
+  adminMethodologyDetailHistory.innerHTML = '';
+  (detail.change_log && detail.change_log.length ? detail.change_log : []).forEach((entry) => {
+    const item = document.createElement('article');
+    item.className = 'admin-methodology-history-item';
+    item.innerHTML =
+      '<div class="admin-methodology-history-head">' +
+        '<strong>' + entry.summary + '</strong>' +
+        '<span>' + new Date(entry.changed_at).toLocaleString('ru-RU') + '</span>' +
+      '</div>' +
+      '<small>' + entry.entity_scope + ' · ' + entry.action + ' · ' + entry.changed_by + '</small>';
+    adminMethodologyDetailHistory.appendChild(item);
+  });
+  if (!detail.change_log || !detail.change_log.length) {
+    adminMethodologyDetailHistory.innerHTML = '<p class="report-empty-state">История изменений пока пуста.</p>';
+  }
+
+  adminMethodologyDrawer.classList.remove('hidden');
+};
+
+const openAdminMethodologyDetail = async (caseIdCode) => {
+  state.adminMethodologyEditMode = false;
+  state.adminMethodologySaving = false;
+  state.adminMethodologyDraft = null;
+  state.adminMethodologyScenarioMode = 'template';
+  if (adminMethodologyDrawer) {
+    adminMethodologyDrawer.classList.remove('hidden');
+  }
+  adminMethodologyDetailTitle.textContent = 'Загружаем кейс...';
+  adminMethodologyDetailSubtitle.textContent = '';
+  adminMethodologyDetailCaseName.textContent = '—';
+  adminMethodologyDetailArtifact.textContent = '—';
+  adminMethodologyDetailStatus.textContent = 'Подготовка';
+  adminMethodologyDetailTiming.textContent = '—';
+  adminMethodologyDetailIntro.textContent = 'Загружаем контекст кейса...';
+  adminMethodologyDetailTask.textContent = 'Подождите, пожалуйста.';
+  try {
+    await loadAdminMethodologyDetail(caseIdCode);
+    renderAdminMethodologyDetail();
+  } catch (error) {
+    try {
+      await loadAdminMethodologyDetail(caseIdCode);
+      renderAdminMethodologyDetail();
+      return;
+    } catch (_retryError) {
+      const summary = getAdminMethodologyCaseSummaryByCode(caseIdCode);
+      adminMethodologyDetailSubtitle.textContent = summary
+        ? (summary.type_code || '—') + ' · ' + (summary.status || 'draft')
+        : '';
+      setDetailNodeText(adminMethodologyDetailCaseName, summary?.title || '—');
+      setDetailNodeText(adminMethodologyDetailArtifact, '—');
+      setDetailNodeText(
+        adminMethodologyDetailStatus,
+        summary
+          ? 'Кейс: ' + getMethodologyStatusLabel(summary.status) + ' · QA: ' + summary.passed_checks + '/' + summary.total_checks
+          : 'Подготовка',
+      );
+      setDetailNodeText(
+        adminMethodologyDetailTiming,
+        summary?.estimated_time_min ? summary.estimated_time_min + ' минут' : 'Время не задано',
+      );
+      setDetailNodeMultiline(
+        adminMethodologyDetailIntro,
+        '',
+        'Не удалось загрузить детальную карточку. ' + (error?.message || 'Попробуйте открыть кейс повторно.'),
+      );
+      setDetailNodeMultiline(adminMethodologyDetailTask, '', 'Базовая информация о кейсе показана из списка. Детальные поля временно недоступны.');
+    }
+    adminMethodologyDetailTitle.textContent = 'Не удалось загрузить кейс';
+  }
+};
+
+const ADMIN_METHODOLOGY_RISK_PAGE_SIZE = 10;
+const ADMIN_METHODOLOGY_CASES_PAGE_SIZE = 10;
+
+const getAdminMethodologyRiskUiState = (key) => {
+  if (!state.adminMethodologyRiskUi[key]) {
+    state.adminMethodologyRiskUi[key] = { collapsed: true, page: 1 };
+  }
+  return state.adminMethodologyRiskUi[key];
+};
+
+const updateAdminMethodologyRiskPage = (key, nextPage, totalPages) => {
+  const uiState = getAdminMethodologyRiskUiState(key);
+  uiState.page = Math.max(1, Math.min(totalPages, nextPage));
+  renderAdminMethodology();
+};
+
+const toggleAdminMethodologyRiskCollapsed = (key) => {
+  const uiState = getAdminMethodologyRiskUiState(key);
+  uiState.collapsed = !uiState.collapsed;
+  renderAdminMethodology();
+};
+
+const renderAdminMethodologyPagedRiskList = (container, config) => {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  const items = Array.isArray(config.items) ? config.items : [];
+  if (!items.length) {
+    container.innerHTML = '<p class="report-empty-state">' + config.emptyText + '</p>';
+    return;
+  }
+
+  const uiState = getAdminMethodologyRiskUiState(config.key);
+  const totalPages = Math.max(1, Math.ceil(items.length / ADMIN_METHODOLOGY_RISK_PAGE_SIZE));
+  if (uiState.page > totalPages) {
+    uiState.page = totalPages;
+  }
+  const startIndex = (uiState.page - 1) * ADMIN_METHODOLOGY_RISK_PAGE_SIZE;
+  const pageItems = items.slice(startIndex, startIndex + ADMIN_METHODOLOGY_RISK_PAGE_SIZE);
+
+  const shell = document.createElement('div');
+  shell.className = 'admin-methodology-risk-shell';
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'admin-methodology-risk-toolbar';
+  toolbar.innerHTML =
+    '<div class="admin-methodology-risk-summary">' +
+      '<strong>Показано ' + pageItems.length + ' из ' + items.length + '</strong>' +
+      '<span>Страница ' + uiState.page + ' из ' + totalPages + '</span>' +
+    '</div>';
+
+  const controls = document.createElement('div');
+  controls.className = 'admin-methodology-risk-toolbar-controls';
+
+  const toggleButton = document.createElement('button');
+  toggleButton.type = 'button';
+  toggleButton.className = 'ghost-button compact-ghost';
+  toggleButton.textContent = uiState.collapsed ? 'Показать список' : 'Скрыть список';
+  toggleButton.addEventListener('click', () => {
+    toggleAdminMethodologyRiskCollapsed(config.key);
+  });
+  controls.appendChild(toggleButton);
+
+  toolbar.appendChild(controls);
+  shell.appendChild(toolbar);
+
+  const body = document.createElement('div');
+  body.className = 'admin-methodology-risk-body' + (uiState.collapsed ? ' hidden' : '');
+  pageItems.forEach((item) => {
+    body.appendChild(config.renderItem(item));
+  });
+
+  if (totalPages > 1) {
+    const pagination = document.createElement('div');
+    pagination.className = 'admin-methodology-risk-pagination';
+
+    const paginationSummary = document.createElement('span');
+    paginationSummary.className = 'admin-methodology-risk-pagination-summary';
+    paginationSummary.textContent = 'Страница ' + uiState.page + ' из ' + totalPages;
+    pagination.appendChild(paginationSummary);
+
+    const paginationControls = document.createElement('div');
+    paginationControls.className = 'admin-methodology-risk-pagination-controls';
+
+    const prevButton = document.createElement('button');
+    prevButton.type = 'button';
+    prevButton.className = 'ghost-button compact-ghost';
+    prevButton.textContent = 'Назад';
+    prevButton.disabled = uiState.page <= 1;
+    prevButton.addEventListener('click', () => {
+      updateAdminMethodologyRiskPage(config.key, uiState.page - 1, totalPages);
+    });
+    paginationControls.appendChild(prevButton);
+
+    const nextButton = document.createElement('button');
+    nextButton.type = 'button';
+    nextButton.className = 'ghost-button compact-ghost';
+    nextButton.textContent = 'Далее';
+    nextButton.disabled = uiState.page >= totalPages;
+    nextButton.addEventListener('click', () => {
+      updateAdminMethodologyRiskPage(config.key, uiState.page + 1, totalPages);
+    });
+    paginationControls.appendChild(nextButton);
+
+    pagination.appendChild(paginationControls);
+    body.appendChild(pagination);
+  }
+
+  shell.appendChild(body);
+  container.appendChild(shell);
+};
+
+const startAdminMethodologyEditing = () => {
+  if (!state.adminMethodologyDetail) {
+    return;
+  }
+  state.adminMethodologyEditMode = true;
+  state.adminMethodologyDraft = getAdminMethodologyDraftFromDetail(state.adminMethodologyDetail);
+  persistAssessmentContext();
+  renderAdminMethodologyDetail();
+};
+
+const cancelAdminMethodologyEditing = () => {
+  state.adminMethodologyEditMode = false;
+  state.adminMethodologySaving = false;
+  state.adminMethodologyDraft = null;
+  persistAssessmentContext();
+  renderAdminMethodologyDetail();
+};
+
+const submitAdminMethodologyEditing = async () => {
+  if (!state.adminMethodologyDetailCode || !state.adminMethodologyDraft) {
+    return;
+  }
+  state.adminMethodologySaving = true;
+  renderAdminMethodologyDetail();
+  try {
+    await saveAdminMethodologyDetail();
+    await loadAdminMethodology();
+    renderAdminMethodology();
+    renderAdminMethodologyDetail();
+  } catch (error) {
+    state.adminMethodologySaving = false;
+    renderAdminMethodologyDetail();
+    window.alert(error.message || 'Не удалось сохранить изменения по кейсу.');
+  }
+};
+
+const renderAdminMethodology = () => {
+  const data = state.adminMethodology;
+  if (!data) {
+    return;
+  }
+
+  if (adminMethodologyTitle) {
+    adminMethodologyTitle.textContent = data.title || 'Управление кейсами';
+  }
+  if (adminMethodologySubtitle) {
+    adminMethodologySubtitle.textContent = data.subtitle || 'Библиотека кейсов и ветки тестирования.';
+  }
+  if (adminMethodologySearch) {
+    adminMethodologySearch.value = state.adminMethodologySearch || '';
+  }
+
+  adminMethodologyMetrics.innerHTML = '';
+  (data.metrics || []).forEach((metric) => {
+    const card = document.createElement('article');
+    card.className = 'admin-metric-card';
+    card.innerHTML =
+      '<span>' + metric.label + '</span>' +
+      '<strong>' + metric.value + '</strong>' +
+      '<small>' + (metric.delta || '') + '</small>';
+    adminMethodologyMetrics.appendChild(card);
+  });
+
+  adminMethodologyCases.innerHTML = '';
+  const filteredCases = getFilteredAdminMethodologyCases();
+  const totalCases = filteredCases.length;
+  const totalPages = Math.max(1, Math.ceil(totalCases / ADMIN_METHODOLOGY_CASES_PAGE_SIZE));
+  if (state.adminMethodologyPage > totalPages) {
+    state.adminMethodologyPage = totalPages;
+  }
+  const pageStart = (state.adminMethodologyPage - 1) * ADMIN_METHODOLOGY_CASES_PAGE_SIZE;
+  const pageCases = filteredCases.slice(pageStart, pageStart + ADMIN_METHODOLOGY_CASES_PAGE_SIZE);
+  if (!filteredCases.length) {
+    adminMethodologyCases.innerHTML = '<p class="report-empty-state">По текущему запросу кейсы не найдены.</p>';
+  } else {
+    pageCases.forEach((item) => {
+      const row = document.createElement('article');
+      row.className = 'admin-report-row admin-methodology-row';
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      const statusLabel = item.status === 'ready' ? 'Активен' : item.status === 'retired' ? 'Архив' : 'Черновик';
+      const qaLabel = item.qa_ready ? 'QA готов' : 'Нужна проверка';
+      row.innerHTML =
+        '<div class="admin-report-cell admin-methodology-title-cell">' +
+          '<strong>' + item.title + '</strong>' +
+        '</div>' +
+        '<div class="admin-report-cell admin-methodology-id-cell"><span>' + item.case_id_code + '</span></div>' +
+        '<div class="admin-report-cell"><strong>' + ((item.roles || []).join(', ') || 'Не заданы') + '</strong></div>' +
+        '<div class="admin-report-cell"><span>' + ((item.skills || []).slice(0, 3).join(', ') || 'Нет навыков') + '</span></div>' +
+        '<div class="admin-report-cell"><strong>' + (item.difficulty_level === 'hard' ? 'Hard' : 'Base') + '</strong></div>' +
+        '<div class="admin-report-cell"><strong>' + (item.estimated_time_min ? item.estimated_time_min + ' мин' : '—') + '</strong></div>' +
+        '<div class="admin-report-cell admin-methodology-status-cell">' +
+          '<span class="admin-status-pill ' + (item.status === 'ready' ? 'done' : item.status === 'retired' ? 'draft' : 'active') + '">' + statusLabel + '</span>' +
+          '<small>' + qaLabel + ' · ' + item.passed_checks + '/' + item.total_checks + '</small>' +
+        '</div>';
+      const openDetail = () => {
+        void openAdminMethodologyDetail(item.case_id_code);
+      };
+      row.addEventListener('click', openDetail);
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openDetail();
+        }
+      });
+      adminMethodologyCases.appendChild(row);
+    });
+  }
+
+  if (adminMethodologyPageSummary) {
+    adminMethodologyPageSummary.textContent = 'Показано ' + pageCases.length + ' из ' + totalCases + ' кейсов';
+  }
+  if (adminMethodologyPageIndicator) {
+    adminMethodologyPageIndicator.textContent = state.adminMethodologyPage + ' / ' + totalPages;
+  }
+  if (adminMethodologyPrevButton) {
+    adminMethodologyPrevButton.disabled = state.adminMethodologyPage <= 1;
+  }
+  if (adminMethodologyNextButton) {
+    adminMethodologyNextButton.disabled = state.adminMethodologyPage >= totalPages;
+  }
+
+  adminMethodologyPassports.innerHTML = '';
+  (data.passports || []).forEach((item) => {
+    const card = document.createElement('article');
+    card.className = 'admin-methodology-passport-card';
+    const rolesText = Array.isArray(item.roles) && item.roles.length ? item.roles.join(', ') : 'Роли не заданы';
+    card.innerHTML =
+      '<div class="admin-methodology-passport-head">' +
+        '<strong>' + item.type_code + '</strong>' +
+        '<span class="admin-status-pill ' + (item.status === 'ready' ? 'done' : item.status === 'retired' ? 'draft' : 'active') + '">' + (item.status === 'ready' ? 'Ready' : item.status === 'retired' ? 'Retired' : 'Draft') + '</span>' +
+      '</div>' +
+      '<h4>' + item.type_name + '</h4>' +
+      '<p>' + item.artifact_name + '</p>' +
+      '<div class="admin-methodology-passport-meta">' +
+        '<span>' + item.ready_cases_count + ' кейсов ready</span>' +
+        '<span>' + item.required_blocks_count + ' блока</span>' +
+        '<span>' + item.red_flags_count + ' red flags</span>' +
+      '</div>' +
+      '<small>' + rolesText + '</small>';
+    adminMethodologyPassports.appendChild(card);
+  });
+  adminMethodologyBranches.innerHTML = '';
+  (data.branches || []).forEach((item) => {
+    const coveragePercent = Math.max(0, Math.min(100, Number(item.skill_coverage_percent) || 0));
+    const competencyPercent = Math.max(0, Math.min(100, Number(item.competency_coverage_percent) || 0));
+    const card = document.createElement('article');
+    card.className = 'admin-methodology-branch-card';
+    card.innerHTML =
+      '<div class="admin-methodology-branch-head">' +
+        '<strong>' + item.role_name + '</strong>' +
+        '<span>' + item.ready_case_count + '/' + item.case_count + ' кейсов</span>' +
+      '</div>' +
+      '<div class="admin-methodology-branch-stat">' +
+        '<span>Покрытие навыков</span><strong>' + coveragePercent + '%</strong>' +
+      '</div>' +
+      '<div class="admin-report-score-track"><span style="width:' + coveragePercent + '%"></span></div>' +
+      '<div class="admin-methodology-branch-stat secondary">' +
+        '<span>Покрытие компетенций</span><strong>' + competencyPercent + '%</strong>' +
+      '</div>' +
+      '<div class="admin-report-score-track warm"><span style="width:' + competencyPercent + '%"></span></div>';
+    adminMethodologyBranches.appendChild(card);
+  });
+
+  adminMethodologyCoverageBody.innerHTML = '';
+  (data.coverage || []).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'admin-methodology-coverage-row';
+    row.innerHTML =
+      '<span>' + item.competency_name + '</span>' +
+      '<span>' + item.linear_value + '</span>' +
+      '<span>' + item.manager_value + '</span>' +
+      '<span>' + item.leader_value + '</span>';
+    adminMethodologyCoverageBody.appendChild(row);
+  });
+
+  if (adminMethodologySummary) {
+    const totalCases = filteredCases.length;
+    const qaReadyCount = filteredCases.filter((item) => item.qa_ready).length;
+    const readyCount = filteredCases.filter((item) => item.status === 'ready').length;
+    adminMethodologySummary.innerHTML =
+      '<div><span>Кейсов в выборке</span><strong>' + totalCases + '</strong></div>' +
+      '<div><span>Ready</span><strong>' + readyCount + '</strong></div>' +
+      '<div><span>QA ready</span><strong>' + qaReadyCount + '</strong></div>';
+  }
+
+  if (adminMethodologySkillGaps) {
+    const items = Array.isArray(data.skill_gaps) ? data.skill_gaps : [];
+    renderAdminMethodologyPagedRiskList(adminMethodologySkillGaps, {
+      key: 'skillGaps',
+      items,
+      emptyText: 'Критичных дефицитов покрытия не найдено.',
+      renderItem: (item) => {
+        const card = document.createElement('article');
+        card.className = 'admin-methodology-risk-item ' + (item.severity === 'critical' ? 'critical' : 'warning');
+        card.innerHTML =
+          '<div class="admin-methodology-risk-head">' +
+            '<strong>' + item.skill_name + '</strong>' +
+            '<span>' + item.role_name + '</span>' +
+          '</div>' +
+          '<p>' + item.competency_name + '</p>' +
+          '<small>' + (item.ready_case_count === 0 ? 'Нет ready-кейсов' : 'Только ' + item.ready_case_count + ' ready-кейс') + '</small>';
+        return card;
+      },
+    });
+  }
+
+  if (adminMethodologySinglePoints) {
+    const items = Array.isArray(data.single_point_skills) ? data.single_point_skills : [];
+    renderAdminMethodologyPagedRiskList(adminMethodologySinglePoints, {
+      key: 'singlePoints',
+      items,
+      emptyText: 'Навыки не завязаны на один тип кейса.',
+      renderItem: (item) => {
+        const card = document.createElement('article');
+        card.className = 'admin-methodology-risk-item single-point';
+        card.innerHTML =
+          '<div class="admin-methodology-risk-head">' +
+            '<strong>' + item.skill_name + '</strong>' +
+            '<span>' + ((item.type_codes || []).join(', ') || '—') + '</span>' +
+          '</div>' +
+          '<p>' + item.competency_name + '</p>' +
+          '<small>' + ((item.role_names || []).join(', ') || 'Роли не указаны') + ' · ' + item.ready_case_count + ' ready-кейс(ов)</small>';
+        return card;
+      },
+    });
+  }
+
+  if (adminMethodologyCaseQuality) {
+    const items = Array.isArray(data.case_quality_hotspots) ? data.case_quality_hotspots : [];
+    renderAdminMethodologyPagedRiskList(adminMethodologyCaseQuality, {
+      key: 'caseQuality',
+      items,
+      emptyText: 'Пока недостаточно данных прохождений для аналитики качества кейсов.',
+      renderItem: (item) => {
+        const coverageText = item.avg_block_coverage_percent == null
+          ? 'покрытие структуры еще не накоплено'
+          : 'среднее покрытие ' + Math.round(item.avg_block_coverage_percent) + '%';
+        const card = document.createElement('article');
+        card.className = 'admin-methodology-risk-item case-quality';
+        card.innerHTML =
+          '<div class="admin-methodology-risk-head">' +
+            '<strong>' + item.title + '</strong>' +
+            '<span>' + item.case_id_code + ' · ' + item.type_code + '</span>' +
+          '</div>' +
+          '<p>' + item.issue_label + '</p>' +
+          '<small>' +
+            item.assessments_count + ' оценок · ' +
+            'red flags ' + item.avg_red_flag_count.toFixed(1) + ' · ' +
+            'missing blocks ' + item.avg_missing_blocks_count.toFixed(1) + ' · ' +
+            coverageText + ' · ' +
+            'низкие уровни ' + item.low_level_rate_percent + '%' +
+          '</small>';
+        return card;
+      },
+    });
+  }
+
+  renderAdminMethodologyTab();
+};
+
+const openAdminMethodology = async () => {
+  setCurrentScreen('admin-methodology');
+  persistAssessmentContext();
+  syncUrlState('admin-methodology');
+  hideAllPanels();
+  adminMethodologyPanel.classList.remove('hidden');
+  if (adminMethodologyCases) {
+    adminMethodologyCases.innerHTML = '<p class="report-empty-state">Загружаем методическую модель...</p>';
+  }
+  try {
+    if (!state.adminMethodology) {
+      await loadAdminMethodology();
+    }
+    renderAdminMethodology();
+    if (state.adminMethodologyDetailCode) {
+      await openAdminMethodologyDetail(state.adminMethodologyDetailCode);
+    }
+  } catch (error) {
+    if (adminMethodologyCases) {
+      adminMethodologyCases.innerHTML = '<p class="report-empty-state">' + error.message + '</p>';
+    }
+  }
+};
+
 const formatAdminReportDate = (item) => {
   const value = item.finished_at || item.started_at;
   if (!value) {
@@ -1231,26 +3017,20 @@ const sendChatMessage = async (text) => {
   showError(chatError, '');
 
   try {
-    const operationId = createOperationId();
-    if (state.isNewUserFlow) {
-      showLoader(
-        'Создаем профиль пользователя',
-        'Идет сохранение данных, очистка текста и формирование стартового профиля пользователя.',
-        loaderFlows.createOrUpdateProfile,
-      );
-    } else {
+    const operationId = state.isNewUserFlow ? createOperationId() : null;
+    if (state.isNewUserFlow && operationId) {
       showLoader(
         'Актуализируем профиль',
         'Проверяем изменения, обновляем данные и подготавливаем следующий шаг.',
         loaderFlows.createOrUpdateProfile,
       );
+      startLoaderProgressPolling(operationId);
     }
-    startLoaderProgressPolling(operationId);
     const response = await fetch('/users/agent/message', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Agent4K-Operation-Id': operationId,
+        ...(operationId ? { 'X-Agent4K-Operation-Id': operationId } : {}),
       },
       body: JSON.stringify({
         session_id: state.sessionId,
@@ -1265,7 +3045,9 @@ const sendChatMessage = async (text) => {
     state.assessmentSessionCode = data.assessment_session_code || state.assessmentSessionCode;
     state.pendingRoleOptions = Array.isArray(data.role_options) ? data.role_options : [];
     setStatus(data.user ? data : {});
-    hideLoader();
+    if (state.isNewUserFlow) {
+      hideLoader();
+    }
     renderChatRoleOptions();
 
     if (state.completed) {
@@ -1284,7 +3066,9 @@ const sendChatMessage = async (text) => {
       }, 900);
     }
   } catch (error) {
-    hideLoader();
+    if (state.isNewUserFlow) {
+      hideLoader();
+    }
     showError(chatError, error.message);
   }
 };
@@ -1791,14 +3575,26 @@ const renderAdminReportDetail = () => {
     if (adminReportDetailStatusBadge) {
       adminReportDetailStatusBadge.textContent = 'Черновик';
     }
-    adminReportDetailMbtiType.textContent = 'Нет данных';
-    adminReportDetailMbtiSummary.textContent = 'Данные по отчету пока недоступны.';
+    if (adminReportDetailMbtiType) {
+      adminReportDetailMbtiType.textContent = 'Нет данных';
+    }
+    if (adminReportDetailMbtiSummary) {
+      adminReportDetailMbtiSummary.textContent = 'Данные по отчету пока недоступны.';
+    }
+    adminReportDetailInsightTitle.textContent = 'AI insight недоступен';
+    adminReportDetailInsightText.textContent = 'После загрузки результатов здесь появится интерпретация профиля пользователя.';
     renderAdminCompetencyVisual([]);
     renderAdminSkillRadar([]);
-    adminReportDetailMbtiAxes.innerHTML = '';
+    if (adminReportDetailMbtiAxes) {
+      adminReportDetailMbtiAxes.innerHTML = '';
+    }
+    adminReportDetailBasis.innerHTML = '';
     adminReportDetailStrengths.innerHTML = '<li>Данные будут доступны после появления результатов оценки.</li>';
     adminReportDetailGrowth.innerHTML = '<li>Зоны роста будут определены после накопления результатов.</li>';
-    adminReportDetailQuotes.innerHTML = '<article class="admin-detail-quote-card"><p>Цитаты из оценки пока недоступны.</p></article>';
+    adminReportDetailQuotes.innerHTML = '';
+    if (adminReportDetailCases) {
+      adminReportDetailCases.innerHTML = '';
+    }
     return;
   }
 
@@ -1828,21 +3624,36 @@ const renderAdminReportDetail = () => {
   if (adminReportDetailStatusBadge) {
     adminReportDetailStatusBadge.textContent = getAdminStatusBadgeLabel(detail.status);
   }
-  adminReportDetailMbtiType.textContent = detail.mbti_type || 'Нет данных';
-  adminReportDetailMbtiSummary.textContent = detail.mbti_summary || 'Данные MBTI пока недоступны для этой записи.';
+  if (adminReportDetailMbtiType) {
+    adminReportDetailMbtiType.textContent = detail.mbti_type || 'Нет данных';
+  }
+  if (adminReportDetailMbtiSummary) {
+    adminReportDetailMbtiSummary.textContent = detail.mbti_summary || 'Данные MBTI пока недоступны для этой записи.';
+  }
+  adminReportDetailInsightTitle.textContent = detail.insight_title || 'AI insight недоступен';
+  adminReportDetailInsightText.textContent = detail.insight_text || 'Для этой записи пока не удалось построить интерпретацию результатов.';
 
   renderAdminCompetencyVisual(competencyItems);
   renderAdminSkillRadar(state.adminReportDetailSkillAssessments);
 
-  adminReportDetailMbtiAxes.innerHTML = '';
-  mbtiAxes.forEach((axis) => {
-    const item = document.createElement('div');
-    item.className = 'admin-detail-mbti-axis';
-    const value = Math.max(0, Math.min(100, Number(axis.value) || 0));
-    item.innerHTML =
-      '<div class="admin-detail-mbti-axis-head"><span>' + (axis.left || 'Нет данных') + '</span><span>' + (axis.right || 'Нет данных') + '</span></div>' +
-      '<div class="admin-detail-mbti-axis-track"><span style="width:' + value + '%"></span></div>';
-    adminReportDetailMbtiAxes.appendChild(item);
+  if (adminReportDetailMbtiAxes) {
+    adminReportDetailMbtiAxes.innerHTML = '';
+    mbtiAxes.forEach((axis) => {
+      const item = document.createElement('div');
+      item.className = 'admin-detail-mbti-axis';
+      const value = Math.max(0, Math.min(100, Number(axis.value) || 0));
+      item.innerHTML =
+        '<div class="admin-detail-mbti-axis-head"><span>' + (axis.left || 'Нет данных') + '</span><span>' + (axis.right || 'Нет данных') + '</span></div>' +
+        '<div class="admin-detail-mbti-axis-track"><span style="width:' + value + '%"></span></div>';
+      adminReportDetailMbtiAxes.appendChild(item);
+    });
+  }
+
+  adminReportDetailBasis.innerHTML = '';
+  (detail.basis_items && detail.basis_items.length ? detail.basis_items : []).forEach((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    adminReportDetailBasis.appendChild(item);
   });
 
   adminReportDetailStrengths.innerHTML = '';
@@ -1860,12 +3671,133 @@ const renderAdminReportDetail = () => {
   });
 
   adminReportDetailQuotes.innerHTML = '';
-  (detail.quotes && detail.quotes.length ? detail.quotes : ['Цитаты из оценки пока недоступны.']).forEach((text) => {
+  (detail.quotes && detail.quotes.length ? detail.quotes : []).forEach((text) => {
     const card = document.createElement('article');
     card.className = 'admin-detail-quote-card';
-    card.innerHTML = '<p>' + text + '</p>';
+    card.innerHTML = '<p>' + escapeHtml(text) + '</p>';
     adminReportDetailQuotes.appendChild(card);
   });
+
+  if (adminReportDetailCases) {
+    const caseItems = Array.isArray(detail.case_items) ? detail.case_items : [];
+    adminReportDetailCases.innerHTML = '';
+    if (!caseItems.length) {
+      adminReportDetailCases.innerHTML = '<p class="report-empty-state">Для этой сессии пока не сохранены кейсы или история диалога.</p>';
+    } else {
+      const renderCaseTextBlock = (label, text) => {
+        const normalized = String(text || '').trim();
+        if (!normalized) {
+          return '';
+        }
+        return '<div class="admin-detail-case-text-block">' +
+          '<strong>' + escapeHtml(label) + '</strong>' +
+          '<p>' + escapeHtml(normalized) + '</p>' +
+        '</div>';
+      };
+
+      caseItems.forEach((item) => {
+        const statusMap = {
+          selected: 'Выбран',
+          shown: 'Показан',
+          answered: 'Отвечен',
+          assessed: 'Оценен',
+          completed: 'Завершен',
+        };
+        const startedAt = item.started_at
+          ? new Date(item.started_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : 'Нет данных';
+        const finishedAt = item.finished_at
+          ? new Date(item.finished_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : 'Нет данных';
+        const textBlocks = [
+          renderCaseTextBlock('Контекст', item.personalized_context),
+          renderCaseTextBlock('Задача', item.personalized_task),
+        ].filter(Boolean).join('');
+        const promptBlock = item.prompt_text
+          ? '<details class="admin-detail-case-prompt-details">' +
+              '<summary>Показать полный промпт</summary>' +
+              '<pre>' + escapeHtml(item.prompt_text) + '</pre>' +
+            '</details>'
+          : '';
+        const details = document.createElement('details');
+        details.className = 'admin-detail-case-item';
+        details.innerHTML =
+          '<summary class="admin-detail-case-summary">' +
+            '<div class="admin-detail-case-summary-main">' +
+              '<span class="admin-detail-case-order">Кейс ' + escapeHtml(item.case_number) + '</span>' +
+              '<strong>' + escapeHtml(item.case_title || 'Кейс без названия') + '</strong>' +
+              '<span class="admin-detail-case-code">' + escapeHtml(item.case_id_code || 'Без ID') + '</span>' +
+            '</div>' +
+            '<div class="admin-detail-case-summary-meta">' +
+              '<span>' + escapeHtml(statusMap[item.status] || item.status || 'Неизвестно') + '</span>' +
+              '<span>' + escapeHtml((item.dialogue || []).length) + ' сообщений</span>' +
+              '<span>' + escapeHtml((item.skill_results || []).length) + ' навыков</span>' +
+            '</div>' +
+          '</summary>' +
+          '<div class="admin-detail-case-body">' +
+            '<div class="admin-detail-case-columns">' +
+              '<section class="admin-detail-case-panel">' +
+                '<details class="admin-detail-case-section" open>' +
+                  '<summary class="admin-detail-case-section-summary">Текст кейса</summary>' +
+                  '<div class="admin-detail-case-section-body">' +
+                    '<div class="admin-detail-case-meta"><span>Начало: ' + escapeHtml(startedAt) + '</span><span>Завершение: ' + escapeHtml(finishedAt) + '</span></div>' +
+                    '<div class="admin-detail-case-text-stack">' +
+                      (textBlocks || '<p class="report-empty-state">Текст кейса в этой сессии не сохранен.</p>') +
+                    '</div>' +
+                    promptBlock +
+                  '</div>' +
+                '</details>' +
+              '</section>' +
+              '<section class="admin-detail-case-panel">' +
+                '<details class="admin-detail-case-section" open>' +
+                  '<summary class="admin-detail-case-section-summary">Диалог по кейсу</summary>' +
+                  '<div class="admin-detail-case-section-body">' +
+                    '<div class="admin-detail-case-dialogue">' +
+                      ((item.dialogue || []).length
+                        ? item.dialogue.map((message) =>
+                            '<article class="admin-detail-case-message ' + (message.role === 'user' ? 'is-user' : 'is-assistant') + '">' +
+                              '<span class="admin-detail-case-message-role">' + escapeHtml(message.role === 'user' ? 'Пользователь' : 'Ассистент') + '</span>' +
+                              '<p>' + escapeHtml(message.message_text || '') + '</p>' +
+                            '</article>'
+                          ).join('')
+                        : '<p class="report-empty-state">Диалог по кейсу не найден.</p>') +
+                    '</div>' +
+                  '</div>' +
+                '</details>' +
+              '</section>' +
+            '</div>' +
+            '<section class="admin-detail-case-panel">' +
+              '<h4>Результат по кейсу</h4>' +
+              '<div class="admin-detail-case-skills">' +
+                ((item.skill_results || []).length
+                  ? item.skill_results.map((skill) =>
+                      '<article class="admin-detail-case-skill-card">' +
+                        '<div class="admin-detail-case-skill-head">' +
+                          '<strong>' + escapeHtml(skill.skill_name || 'Навык') + '</strong>' +
+                          '<span>' + escapeHtml(skill.assessed_level_name || skill.assessed_level_code || 'Без уровня') + '</span>' +
+                        '</div>' +
+                        '<div class="admin-detail-case-skill-meta">' +
+                          '<span>' + escapeHtml(skill.competency_name || 'Без категории') + '</span>' +
+                          '<span>Artifact: ' + escapeHtml(typeof skill.artifact_compliance_percent === 'number' ? skill.artifact_compliance_percent + '%' : '—') + '</span>' +
+                          '<span>Blocks: ' + escapeHtml(typeof skill.block_coverage_percent === 'number' ? skill.block_coverage_percent + '%' : '—') + '</span>' +
+                        '</div>' +
+                        '<div class="admin-detail-case-tags">' +
+                          ((skill.red_flags || []).map((flag) => '<span class="admin-detail-case-tag danger">' + escapeHtml(flag) + '</span>').join('') || '<span class="admin-detail-case-tag muted">Без red flags</span>') +
+                          ((skill.found_evidence || []).map((itemText) => '<span class="admin-detail-case-tag">' + escapeHtml(itemText) + '</span>').join('')) +
+                        '</div>' +
+                        (skill.evidence_excerpt
+                          ? '<p class="admin-detail-case-evidence">' + escapeHtml(skill.evidence_excerpt) + '</p>'
+                          : '') +
+                      '</article>'
+                    ).join('')
+                  : '<p class="report-empty-state">Локальная аналитика по кейсу не найдена.</p>') +
+              '</div>' +
+            '</section>' +
+          '</div>';
+        adminReportDetailCases.appendChild(details);
+      });
+    }
+  }
 
   if (adminReportDetailPdfButton) {
     adminReportDetailPdfButton.disabled = !(detail.user_id && detail.session_id);
@@ -1925,10 +3857,18 @@ const openAdminReportDetail = async (sessionId) => {
     adminReportDetailCompetencyFallback.classList.remove('hidden');
   }
   renderAdminSkillRadar([]);
-  adminReportDetailMbtiAxes.innerHTML = '';
+  adminReportDetailInsightTitle.textContent = 'Загружаем AI insight...';
+  adminReportDetailInsightText.textContent = 'Подготавливаем интерпретацию результатов пользователя.';
+  if (adminReportDetailMbtiAxes) {
+    adminReportDetailMbtiAxes.innerHTML = '';
+  }
+  adminReportDetailBasis.innerHTML = '';
   adminReportDetailStrengths.innerHTML = '';
   adminReportDetailGrowth.innerHTML = '';
   adminReportDetailQuotes.innerHTML = '';
+  if (adminReportDetailCases) {
+    adminReportDetailCases.innerHTML = '';
+  }
   try {
     await loadAdminReportDetail(sessionId);
     renderAdminReportDetail();
@@ -1962,10 +3902,15 @@ const openAdminReportDetail = async (sessionId) => {
       adminReportDetailCompetencyFallback.classList.remove('hidden');
     }
     renderAdminSkillRadar([]);
-    adminReportDetailMbtiSummary.textContent = 'Не удалось загрузить данные MBTI.';
+    adminReportDetailInsightTitle.textContent = 'Не удалось загрузить AI insight';
+    adminReportDetailInsightText.textContent = error.message;
+    if (adminReportDetailMbtiSummary) {
+      adminReportDetailMbtiSummary.textContent = 'Не удалось загрузить данные MBTI.';
+    }
+    adminReportDetailBasis.innerHTML = '';
     adminReportDetailStrengths.innerHTML = '<li>Данные временно недоступны.</li>';
     adminReportDetailGrowth.innerHTML = '<li>Данные временно недоступны.</li>';
-    adminReportDetailQuotes.innerHTML = '<article class="admin-detail-quote-card"><p>Отчет пока не удалось загрузить.</p></article>';
+    adminReportDetailQuotes.innerHTML = '';
   }
 };
 
@@ -1993,7 +3938,10 @@ const renderDashboard = () => {
     dashboard.active_assessment.completed_cases + ' из ' + dashboard.active_assessment.total_cases + ' кейсов';
   assessmentProgressBar.style.width = dashboard.active_assessment.progress_percent + '%';
   assessmentProgressValue.textContent = dashboard.active_assessment.progress_percent + '%';
-  assessmentActionButton.textContent = dashboard.active_assessment.button_label;
+  assessmentActionButton.textContent = canReusePreparedAssessment()
+    ? 'Перейти к кейсам'
+    : dashboard.active_assessment.button_label;
+  renderAssessmentPreparationState();
 
   availableAssessments.innerHTML = '';
   dashboard.available_assessments.forEach((item) => {
@@ -2019,31 +3967,22 @@ const renderDashboard = () => {
   });
 
   reportsList.innerHTML = '';
-  if (!dashboard.reports.length) {
-    const item = document.createElement('article');
-    item.className = 'report-card report-card-clickable';
-    item.innerHTML =
-      '<div class="report-badge muted-report">0%</div>' +
-      '<div class="report-copy"><h3>4K Assessment</h3><p>История отчетов открывается на отдельной странице. После завершения ассессмента внутри отчета будут доступны раскрывающиеся результаты по навыкам.</p></div>' +
-      '<div class="report-actions"><button type="button" class="report-action-button muted">Открыть</button></div>';
-    item.addEventListener('click', () => {
-      void openReports();
-    });
-    reportsList.appendChild(item);
-  } else {
-    dashboard.reports.forEach((report) => {
-      const item = document.createElement('article');
-      item.className = 'report-card report-card-clickable';
-      item.innerHTML =
-        '<div class="report-badge">' + report.badge + '</div>' +
-        '<div class="report-copy"><h3>' + report.title + '</h3><p>' + report.summary + '</p></div>' +
-        '<div class="report-actions"><button type="button" class="report-action-button">Открыть</button></div>';
-      item.addEventListener('click', () => {
-        void openReports();
-      });
-      reportsList.appendChild(item);
-    });
-  }
+  const reportsCount = Number.isFinite(Number(dashboard.reports_total))
+    ? Number(dashboard.reports_total)
+    : (Array.isArray(dashboard.reports) ? dashboard.reports.length : 0);
+  const reportsSummary = document.createElement('button');
+  reportsSummary.type = 'button';
+  reportsSummary.className = 'reports-summary-button';
+  reportsSummary.innerHTML =
+    '<div class="reports-summary-copy">' +
+      '<span class="reports-summary-label">Всего отчетов по оценке</span>' +
+      '<strong class="reports-summary-count">' + reportsCount + '</strong>' +
+    '</div>' +
+    '<span class="reports-summary-action">Перейти к отчетам</span>';
+  reportsSummary.addEventListener('click', () => {
+    void openReports();
+  });
+  reportsList.appendChild(reportsSummary);
 };
 
 const openDashboard = () => {
@@ -2053,6 +3992,7 @@ const openDashboard = () => {
   hideAllPanels();
   renderDashboard();
   dashboardPanel.classList.remove('hidden');
+  void beginAssessmentPreparation();
 };
 
 const hasIncompleteAssessment = () => {
@@ -2085,14 +4025,19 @@ const renderAiWelcomeState = () => {
   const hasHistory = hasCompletedAssessmentBefore();
   const backendLabel = String(state.dashboard?.active_assessment?.button_label || '').toLowerCase();
   const shouldRepeat = !isContinueMode && (hasHistory || backendLabel.includes('снова'));
+  const prepared = canReusePreparedAssessment() && !isContinueMode;
 
   startFirstAssessmentButton.textContent = isContinueMode
     ? 'Продолжить ассессмент'
+    : prepared
+      ? 'Перейти к кейсам'
     : shouldRepeat
       ? 'Пройти ассессмент снова'
       : 'Начать первый ассессмент';
   libraryStartButton.textContent = isContinueMode
     ? 'Продолжить'
+    : prepared
+      ? 'К кейсам'
     : shouldRepeat
       ? 'Снова'
       : 'Начать';
@@ -2100,10 +4045,13 @@ const renderAiWelcomeState = () => {
   if (aiHeroDescription) {
     aiHeroDescription.textContent = isContinueMode
       ? 'Продолжите текущий ассессмент, чтобы завершить оценку компетенций и перейти к итоговому профилю.'
+      : prepared
+        ? 'Набор кейсов уже подготовлен. Можно сразу переходить к прохождению.'
       : shouldRepeat
         ? 'Пройдите ассессмент снова, чтобы получить новый набор кейсов и сравнить результаты с предыдущими попытками.'
         : 'Пройдите первый ассессмент, чтобы получить ваш профиль компетенций и персонализированные рекомендации от искусственного интеллекта.';
   }
+  renderAssessmentPreparationState();
 };
 
 const openAiWelcome = () => {
@@ -2118,6 +4066,7 @@ const openAiWelcome = () => {
   renderAiWelcomeState();
   hideAllPanels();
   aiWelcomePanel.classList.remove('hidden');
+  void beginAssessmentPreparation();
 };
 
 const openWelcomeScreen = () => {
@@ -2139,7 +4088,9 @@ const openPrechat = () => {
   syncUrlState('prechat');
   hideAllPanels();
   showError(prechatError, '');
+  renderAssessmentPreparationState();
   prechatPanel.classList.remove('hidden');
+  void beginAssessmentPreparation();
 };
 
 const formatProfileDate = (value) => {
@@ -2155,6 +4106,34 @@ const formatProfileDate = (value) => {
     month: '2-digit',
     year: 'numeric',
   });
+};
+
+const formatDashboardReportDateTime = (value) => {
+  if (!value) {
+    return 'Без даты';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Без даты';
+  }
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const buildArtifactHint = (skill) => {
+  const parts = [];
+  if (skill.expected_artifact_names) {
+    parts.push('Артефакт: ' + skill.expected_artifact_names);
+  }
+  if (skill.artifact_compliance_percent != null) {
+    parts.push('Соответствие: ' + skill.artifact_compliance_percent + '%');
+  }
+  return parts.join(' • ');
 };
 
 const buildProfileSkillsMarkup = (skills) => {
@@ -2176,6 +4155,7 @@ const buildProfileSkillsMarkup = (skills) => {
       '<div class="profile-skill-main">' +
       '<strong>' + skill.skill_name + '</strong>' +
       '<span>' + (skill.competency_name || 'Без категории') + '</span>' +
+      (buildArtifactHint(skill) ? '<span class="skill-artifact-hint">' + buildArtifactHint(skill) + '</span>' : '') +
       '</div>' +
       '<div class="profile-skill-level">' + skill.assessed_level_name + '</div>' +
       '<div class="profile-skill-progress">' +
@@ -2189,38 +4169,67 @@ const buildProfileSkillsMarkup = (skills) => {
   return header + rows;
 };
 
-const renderProfileSkills = () => {
-  profileSkillsList.innerHTML = '';
-
-  if (!state.profileSelectedSessionId) {
-    profileResultsCaption.textContent = 'Выберите прохождение из списка выше.';
-    profileResultsBadge.textContent = 'Нет данных';
-    profileResultsBadge.className = 'profile-results-badge';
-    profileSkillsList.innerHTML = '<p class="report-empty-state">История прохождений пока пуста.</p>';
-    return;
-  }
-
-  profileResultsCaption.textContent = 'Сессия #' + state.profileSelectedSessionId + '. Ниже показаны все навыки, попавшие в оценку по выбранной попытке.';
-  profileResultsBadge.textContent = state.profileSkillAssessments.length + ' навыков';
-  profileResultsBadge.className = 'profile-results-badge active';
-  profileSkillsList.innerHTML = buildProfileSkillsMarkup(state.profileSkillAssessments);
-};
-
 const renderProfile = () => {
   const summary = state.profileSummary;
   const user = summary?.user || state.pendingUser;
   const profilePosition = sanitizeDisplayRole(user?.job_description || '');
 
-  profileAvatar.textContent = buildInitials(user?.full_name || 'Пользователь');
+  renderProfileAvatar(user);
   profileName.textContent = user?.full_name || 'Пользователь';
   profileRole.textContent = profilePosition || 'Должность не указана';
   profileTotalAssessments.textContent = String(summary?.total_assessments || 0);
   profileAverageScore.textContent = summary?.average_score_percent != null ? summary.average_score_percent + '%' : '0%';
   profileFullName.value = user?.full_name || '';
-  profileEmail.value = user?.email || 'Не указан';
+  profileEmail.value = user?.email || '';
   profilePhone.value = user?.phone || 'Не указан';
   profileJobDescription.value = profilePosition || 'Не указана';
+  profileCompanyIndustry.value = sanitizeDisplayMetaText(user?.company_industry || '') || 'Не указана';
+};
 
+const saveProfile = async (options = {}) => {
+  const { silent = false, successMessage = 'Изменения сохранены.' } = options;
+  if (!state.pendingUser?.id) {
+    setProfileStatus('Не удалось определить пользователя для сохранения профиля.', 'error');
+    return;
+  }
+
+  profileEmail.disabled = true;
+  if (!silent) {
+    setProfileStatus('Сохраняем изменения...', '');
+  }
+
+  try {
+    const response = await fetch('/users/' + state.pendingUser.id + '/profile', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: profileEmail.value.trim() || null,
+        avatar_data_url: state.profileAvatarDraft,
+      }),
+    });
+    const data = await readApiResponse(response, 'Не удалось сохранить изменения профиля.');
+    state.pendingUser = data;
+    if (state.profileSummary?.user) {
+      state.profileSummary.user = data;
+    }
+    state.profileAvatarDraft = data.avatar_data_url || null;
+    renderProfile();
+    if (!silent || successMessage) {
+      setProfileStatus(successMessage, 'success');
+    }
+  } catch (error) {
+    setProfileStatus(error.message, 'error');
+  } finally {
+    profileEmail.disabled = false;
+  }
+};
+
+const resetProfileDraft = () => {
+  state.profileAvatarDraft = state.profileSummary?.user?.avatar_data_url || state.pendingUser?.avatar_data_url || null;
+  renderProfile();
+  setProfileStatus('', '');
 };
 
 const renderReportsPage = () => {
@@ -2229,7 +4238,20 @@ const renderReportsPage = () => {
   if (!summary?.history?.length) {
     profileHistoryList.innerHTML = '<p class="report-empty-state">Пользователь еще не проходил оценку компетенций.</p>';
   } else {
-    summary.history.forEach((item) => {
+    const history = Array.isArray(summary.history) ? summary.history : [];
+    const selectedIndex = state.profileSelectedSessionId
+      ? history.findIndex((item) => item.session_id === state.profileSelectedSessionId)
+      : -1;
+    if (selectedIndex >= 0) {
+      state.profileHistoryPage = Math.floor(selectedIndex / PROFILE_HISTORY_PAGE_SIZE) + 1;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(history.length / PROFILE_HISTORY_PAGE_SIZE));
+    state.profileHistoryPage = Math.min(Math.max(1, state.profileHistoryPage || 1), totalPages);
+    const pageStart = (state.profileHistoryPage - 1) * PROFILE_HISTORY_PAGE_SIZE;
+    const pageItems = history.slice(pageStart, pageStart + PROFILE_HISTORY_PAGE_SIZE);
+
+    pageItems.forEach((item) => {
       const skills = state.profileSkillsBySession[item.session_id] || [];
       const expanded = state.profileSelectedSessionId === item.session_id;
       const card = document.createElement('article');
@@ -2281,18 +4303,33 @@ const renderReportsPage = () => {
       }
       profileHistoryList.appendChild(card);
     });
+
+    if (totalPages > 1) {
+      const pagination = document.createElement('div');
+      pagination.className = 'profile-history-pagination';
+      pagination.innerHTML =
+        '<button type="button" class="ghost-button compact-ghost profile-history-page-button prev"' + (state.profileHistoryPage <= 1 ? ' disabled' : '') + '>Назад</button>' +
+        '<span class="profile-history-page-indicator">Страница ' + state.profileHistoryPage + ' из ' + totalPages + '</span>' +
+        '<button type="button" class="ghost-button compact-ghost profile-history-page-button next"' + (state.profileHistoryPage >= totalPages ? ' disabled' : '') + '>Вперед</button>';
+
+      const prevButton = pagination.querySelector('.profile-history-page-button.prev');
+      const nextButton = pagination.querySelector('.profile-history-page-button.next');
+      if (prevButton) {
+        prevButton.addEventListener('click', () => {
+          state.profileHistoryPage = Math.max(1, state.profileHistoryPage - 1);
+          renderReportsPage();
+        });
+      }
+      if (nextButton) {
+        nextButton.addEventListener('click', () => {
+          state.profileHistoryPage = Math.min(totalPages, state.profileHistoryPage + 1);
+          renderReportsPage();
+        });
+      }
+      profileHistoryList.appendChild(pagination);
+    }
   }
 
-  if (state.profileSelectedSessionId) {
-    profileResultsCaption.textContent = 'Результаты уже доступны внутри раскрытого блока выбранного ассессмента.';
-    profileResultsBadge.textContent = 'Аккордеон';
-    profileResultsBadge.className = 'profile-results-badge active';
-  } else {
-    profileResultsCaption.textContent = 'Откройте любой ассессмент в истории, чтобы посмотреть навыки.';
-    profileResultsBadge.textContent = 'Свернуто';
-    profileResultsBadge.className = 'profile-results-badge';
-  }
-  profileSkillsList.innerHTML = '<p class="report-empty-state">Результаты по навыкам открываются внутри раскрытого ассессмента.</p>';
 };
 
 const loadProfileSummary = async () => {
@@ -2302,6 +4339,7 @@ const loadProfileSummary = async () => {
   const response = await fetch('/users/' + state.pendingUser.id + '/profile-summary');
   const data = await readApiResponse(response, 'Не удалось загрузить профиль пользователя.');
   state.profileSummary = data;
+  state.profileHistoryPage = 1;
 };
 
 const loadProfileSessionSkills = async (sessionId) => {
@@ -2325,6 +4363,8 @@ const openProfile = async () => {
   profilePanel.classList.remove('hidden');
   try {
     await loadProfileSummary();
+    state.profileAvatarDraft = state.profileSummary?.user?.avatar_data_url || state.pendingUser?.avatar_data_url || null;
+    setProfileStatus('', '');
     renderProfile();
   } catch (error) {
     profileRole.textContent = error.message;
@@ -2338,7 +4378,6 @@ const openReports = async () => {
   hideAllPanels();
   reportsPanel.classList.remove('hidden');
   profileHistoryList.innerHTML = '<p class="report-empty-state">Загружаем историю прохождений...</p>';
-  profileSkillsList.innerHTML = '';
 
   try {
     if (!state.profileSummary) {
@@ -2352,7 +4391,6 @@ const openReports = async () => {
     renderReportsPage();
   } catch (error) {
     profileHistoryList.innerHTML = '<p class="report-empty-state">' + error.message + '</p>';
-    profileSkillsList.innerHTML = '';
   }
 };
 
@@ -2416,6 +4454,21 @@ const ensureDashboardAfterAssessment = () => {
 
 const getLevelPercent = (levelCode) => levelPercentMap[levelCode] ?? 0;
 
+const parseJsonArrayField = (value) => {
+  if (!value) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+};
+
 const getCompetencySummary = () => {
   const grouped = new Map();
 
@@ -2437,32 +4490,238 @@ const getCompetencySummary = () => {
       const avgPercent = Math.round(
         skills.reduce((sum, skill) => sum + getLevelPercent(skill.assessed_level_code), 0) / skills.length,
       );
+      const evidenceHits = skills.filter((skill) => parseJsonArrayField(skill.found_evidence).length > 0).length;
+      const blockValues = skills
+        .map((skill) => (skill.block_coverage_percent != null ? Number(skill.block_coverage_percent) || 0 : null))
+        .filter((value) => value != null);
+      const artifactValues = skills
+        .map((skill) => (skill.artifact_compliance_percent != null ? Number(skill.artifact_compliance_percent) || 0 : null))
+        .filter((value) => value != null);
+      const redFlagCounts = skills.map((skill) => parseJsonArrayField(skill.red_flags).length);
+      const metrics = {
+        evidenceHitRate: skills.length ? evidenceHits / skills.length : 0,
+        avgBlockCoverage: blockValues.length
+          ? blockValues.reduce((sum, value) => sum + value, 0) / blockValues.length
+          : 0,
+        avgArtifactCompliance: artifactValues.length
+          ? artifactValues.reduce((sum, value) => sum + value, 0) / artifactValues.length
+          : 0,
+        avgRedFlagCount: redFlagCounts.length
+          ? redFlagCounts.reduce((sum, value) => sum + value, 0) / redFlagCounts.length
+          : 0,
+      };
       return {
         competency,
         skills,
         avgPercent,
+        metrics,
+        insightScore: Math.round(
+          avgPercent * 0.5 +
+          metrics.evidenceHitRate * 100 * 0.2 +
+          metrics.avgBlockCoverage * 0.15 +
+          metrics.avgArtifactCompliance * 0.15 -
+          Math.min(metrics.avgRedFlagCount * 10, 40)
+        ),
       };
     });
 };
 
+const hasManifestedCompetencyResults = (summary) => summary.some((item) => item.avgPercent > 0);
+
+const getReportSignalMetrics = () => {
+  const skills = Array.isArray(state.skillAssessments) ? state.skillAssessments : [];
+  if (!skills.length) {
+    return {
+      skillsCount: 0,
+      evidenceHitRate: 0,
+      avgBlockCoverage: 0,
+      avgArtifactCompliance: 0,
+      avgRedFlagCount: 0,
+    };
+  }
+
+  let evidenceHits = 0;
+  let blockCoverageSum = 0;
+  let blockCoverageCount = 0;
+  let artifactComplianceSum = 0;
+  let artifactComplianceCount = 0;
+  let redFlagCountSum = 0;
+
+  skills.forEach((skill) => {
+    if (parseJsonArrayField(skill.found_evidence).length > 0) {
+      evidenceHits += 1;
+    }
+    if (skill.block_coverage_percent != null) {
+      blockCoverageSum += Number(skill.block_coverage_percent) || 0;
+      blockCoverageCount += 1;
+    }
+    if (skill.artifact_compliance_percent != null) {
+      artifactComplianceSum += Number(skill.artifact_compliance_percent) || 0;
+      artifactComplianceCount += 1;
+    }
+    redFlagCountSum += parseJsonArrayField(skill.red_flags).length;
+  });
+
+  return {
+    skillsCount: skills.length,
+    evidenceHitRate: evidenceHits / skills.length,
+    avgBlockCoverage: blockCoverageCount ? blockCoverageSum / blockCoverageCount : 0,
+    avgArtifactCompliance: artifactComplianceCount ? artifactComplianceSum / artifactComplianceCount : 0,
+    avgRedFlagCount: redFlagCountSum / skills.length,
+  };
+};
+
+const hasEnoughSignalForInterpretation = (summary) => {
+  if (!hasManifestedCompetencyResults(summary)) {
+    return false;
+  }
+
+  const metrics = getReportSignalMetrics();
+  if (!metrics.skillsCount) {
+    return false;
+  }
+
+  return (
+    metrics.evidenceHitRate >= 0.2 &&
+    metrics.avgBlockCoverage >= 25 &&
+    metrics.avgArtifactCompliance >= 25 &&
+    metrics.avgRedFlagCount <= 4
+  );
+};
+
+const selectStrongestCompetency = (summary) => {
+  if (!summary.length) {
+    return { strongest: null, isConfident: false };
+  }
+  const ranked = [...summary].sort((a, b) => {
+    if ((b.insightScore || 0) !== (a.insightScore || 0)) {
+      return (b.insightScore || 0) - (a.insightScore || 0);
+    }
+    return b.avgPercent - a.avgPercent;
+  });
+  const strongest = ranked[0] || null;
+  const second = ranked[1] || null;
+  const scoreGap = strongest && second ? (strongest.insightScore || 0) - (second.insightScore || 0) : 999;
+  const isConfident = Boolean(strongest) && (strongest.insightScore || 0) >= 35 && scoreGap >= 5;
+  return { strongest, isConfident };
+};
+
+const COMPETENCY_GROWTH_RECOMMENDATIONS = {
+  'Коммуникация': {
+    structure: 'По коммуникации стоит усилить структуру ответа: фиксировать контекст, уточняющие вопросы, договоренности и следующий шаг.',
+    artifact: 'По коммуникации важно точнее попадать в ожидаемый формат артефакта: сообщение стейкхолдеру должно содержать статус, срок и понятный следующий шаг.',
+    evidence: 'По коммуникации полезно делать ответы более наблюдаемыми: явно формулировать позицию, вопросы и договоренности, чтобы навык проявлялся в тексте.',
+    redflags: 'По коммуникации стоит снизить число типовых ошибок: не игнорировать ограничения, не пропускать резюме и не оставлять ответ без следующего шага.',
+    generic: 'Усилить коммуникацию: чаще фиксировать позицию, вопросы и договоренности в явном виде.'
+  },
+  'Командная работа': {
+    structure: 'По командной работе стоит делать ответ более структурным: явно показывать роли, точки синхронизации и контроль исполнения.',
+    artifact: 'По командной работе важно точнее попадать в артефакт плана действий: кто делает, в какой последовательности, по каким контрольным точкам.',
+    evidence: 'По командной работе полезно явнее проявлять координацию: показывать распределение ролей, поддержку участников и согласование действий.',
+    redflags: 'По командной работе стоит уменьшить число red flags: не пропускать роли, контрольные точки и критерии взаимодействия.',
+    generic: 'Усилить командную работу: показывать распределение ролей, синхронизацию и поддержку участников.'
+  },
+  'Креативность': {
+    structure: 'По креативности стоит лучше структурировать ответ: выделять альтернативы, критерии отбора и следующий шаг по проверке идеи.',
+    artifact: 'По креативности важно точнее попадать в формат артефакта: идеи, пилоты и варианты должны быть оформлены как проверяемый план, а не как общее рассуждение.',
+    evidence: 'По креативности полезно явнее проявлять генерацию вариантов: предлагать альтернативы, пилоты и нестандартные решения в явном виде.',
+    redflags: 'По креативности стоит снизить число red flags: не оставлять ответ без альтернатив, критериев выбора и ограничений для проверки идеи.',
+    generic: 'Усилить креативность: предлагать альтернативы, пилоты и нестандартные варианты решений.'
+  },
+  'Критическое мышление': {
+    structure: 'По критическому мышлению стоит лучше структурировать ответ: выделять критерии, риски, гипотезы и проверку решения.',
+    artifact: 'По критическому мышлению важно точнее попадать в формат артефакта: решение должно быть оформлено через критерии, риски и обоснованный выбор.',
+    evidence: 'По критическому мышлению полезно делать анализ наблюдаемым: явно показывать логику выбора, допущения и проверку гипотез.',
+    redflags: 'По критическому мышлению стоит снизить число red flags: не пропускать критерии, ограничения, риски и контроль решения.',
+    generic: 'Усилить критическое мышление: добавлять критерии, риски, гипотезы и проверку решений.'
+  }
+};
+
+const WEAK_SIGNAL_RECOMMENDATIONS = [
+  'По последней сессии сигнал слишком слабый для корректной персональной интерпретации зон роста.',
+  'Сначала стоит усилить структурность ответов: фиксировать вопросы, критерии, договоренности и следующий шаг.',
+  'Важно попадать в ожидаемый формат ответа кейса: план, список вопросов, сообщение стейкхолдеру или приоритизация.',
+  'Рекомендуется пройти ассессмент повторно и давать более содержательные ответы, чтобы в них проявлялись наблюдаемые действия и решения.'
+];
+
+const buildResponsePatternText = (metrics, hasInterpretationSignal) => {
+  const avgBlockCoverage = Number(metrics?.avgBlockCoverage || 0);
+  const avgArtifactCompliance = Number(metrics?.avgArtifactCompliance || 0);
+  const evidenceHitRate = Number(metrics?.evidenceHitRate || 0);
+  const avgRedFlagCount = Number(metrics?.avgRedFlagCount || 0);
+
+  if (!hasInterpretationSignal) {
+    if (avgBlockCoverage < 25) {
+      return 'Наблюдаемый паттерн: ответы пока чаще остаются краткими и недостаточно структурированными, без явной фиксации критериев, договоренностей и следующего шага.';
+    }
+    if (avgArtifactCompliance < 25) {
+      return 'Наблюдаемый паттерн: в ответах есть попытка решить кейс по содержанию, но формат ожидаемого артефакта пока соблюдается непоследовательно.';
+    }
+    if (evidenceHitRate < 0.2) {
+      return 'Наблюдаемый паттерн: решения и действия пока выражены слишком неявно, поэтому система видит мало подтвержденных сигналов проявления навыков.';
+    }
+    if (avgRedFlagCount > 4) {
+      return 'Наблюдаемый паттерн: в ответах часто пропускаются ограничения, контрольные точки и обязательные элементы структуры, что снижает надежность интерпретации.';
+    }
+    return 'Наблюдаемый паттерн: по текущей сессии ответов пока недостаточно для уверенного описания устойчивой модели поведения.';
+  }
+
+  if (avgBlockCoverage < 50) {
+    return 'Наблюдаемый паттерн: пользователь чаще предлагает содержательные идеи, чем оформляет их в полную структуру ответа с критериями, ролями и следующим шагом.';
+  }
+  if (avgArtifactCompliance < 50) {
+    return 'Наблюдаемый паттерн: пользователь ориентируется на решение задачи, но не всегда оформляет ответ в ожидаемый формат артефакта кейса.';
+  }
+  if (evidenceHitRate < 0.5) {
+    return 'Наблюдаемый паттерн: ответы содержат общую логику решения, но наблюдаемые действия и формулировки навыков проявляются недостаточно явно.';
+  }
+  if (avgRedFlagCount > 2) {
+    return 'Наблюдаемый паттерн: пользователь в целом движется к решению, но регулярно упускает ограничения, контрольные точки или важные элементы проверки.';
+  }
+  return 'Наблюдаемый паттерн: ответы в целом структурированы, содержательны и ближе к рабочему формату принятия решения, чем к общим рассуждениям.';
+};
+
+const getCompetencyDominantDeficit = (item) => {
+  if (!item) {
+    return 'generic';
+  }
+  const metrics = item.metrics || {};
+  if ((metrics.avgBlockCoverage || 0) < 50) {
+    return 'structure';
+  }
+  if ((metrics.avgArtifactCompliance || 0) < 50) {
+    return 'artifact';
+  }
+  if ((metrics.evidenceHitRate || 0) < 0.5) {
+    return 'evidence';
+  }
+  if ((metrics.avgRedFlagCount || 0) > 2) {
+    return 'redflags';
+  }
+  return 'generic';
+};
+
+const buildCompetencyGrowthRecommendation = (item) => {
+  const competency = item.competency;
+  const deficit = getCompetencyDominantDeficit(item);
+  const mapping = COMPETENCY_GROWTH_RECOMMENDATIONS[competency] || COMPETENCY_GROWTH_RECOMMENDATIONS['Критическое мышление'];
+  return mapping[deficit] || mapping.generic;
+};
+
 const getReportRecommendations = (summary) => {
+  if (state.reportInterpretation?.growth_areas?.length) {
+    return state.reportInterpretation.growth_areas;
+  }
+  if (!hasEnoughSignalForInterpretation(summary)) {
+    return [...WEAK_SIGNAL_RECOMMENDATIONS];
+  }
+
   const weakest = [...summary].sort((a, b) => a.avgPercent - b.avgPercent).slice(0, 3);
   if (!weakest.length) {
     return ['Завершите ассессмент, чтобы получить рекомендации по развитию.'];
   }
 
-  return weakest.map((item) => {
-    if (item.competency === 'Коммуникация') {
-      return 'Усилить коммуникацию: чаще фиксировать позицию, вопросы и договоренности в явном виде.';
-    }
-    if (item.competency === 'Командная работа') {
-      return 'Усилить командную работу: показывать распределение ролей, синхронизацию и поддержку участников.';
-    }
-    if (item.competency === 'Креативность') {
-      return 'Усилить креативность: предлагать альтернативы, пилоты и нестандартные варианты решений.';
-    }
-    return 'Усилить критическое мышление: добавлять критерии, риски, гипотезы и проверку решений.';
-  });
+  return weakest.map((item) => buildCompetencyGrowthRecommendation(item));
 };
 
 const renderReport = () => {
@@ -2470,7 +4729,7 @@ const renderReport = () => {
   const totalScore = summary.length
     ? Math.round(summary.reduce((sum, item) => sum + item.avgPercent, 0) / summary.length)
     : 0;
-  const strongest = [...summary].sort((a, b) => b.avgPercent - a.avgPercent)[0] || null;
+  const interpretation = state.reportInterpretation || null;
 
   reportOverallScore.textContent = totalScore + '%';
   reportSummaryText.textContent = 'Глубокий анализ оценок по четырем направлениям и детализация результатов по каждому навыку пользователя.';
@@ -2496,15 +4755,15 @@ const renderReport = () => {
     reportCompetencyBars.appendChild(card);
   });
 
-  if (strongest) {
-    reportStrengthTitle.textContent = 'Сильная сторона — ' + strongest.competency;
-    reportStrengthText.textContent =
-      'Наиболее выраженный показатель зафиксирован по направлению «' + strongest.competency +
-      '». Средний интегральный результат по связанным навыкам составил ' + strongest.avgPercent +
-      '%. Этот блок можно использовать как опору для дальнейшего развития и интерпретации профиля.';
+  reportStrengthTitle.textContent = interpretation?.insight_title || 'AI insights пока недоступны';
+  if (interpretation?.insight_text) {
+    const basisBlock = interpretation?.basis_items?.length
+      ? '\n\nОснование вывода:\n• ' + interpretation.basis_items.join('\n• ')
+      : '';
+    reportStrengthText.textContent = interpretation.insight_text + basisBlock;
   } else {
-    reportStrengthTitle.textContent = 'Сильная сторона пока формируется';
-    reportStrengthText.textContent = 'Данные по навыкам еще не загружены. После завершения анализа здесь появится интерпретация сильной стороны пользователя.';
+    reportStrengthText.textContent =
+      'По последней сессии пока не удалось выделить достаточно уверенную доминирующую компетенцию. После повторного прохождения с более содержательными и структурированными ответами здесь появится аналитический вывод.';
   }
 
   const availableTabs = summary.map((item) => item.competency);
@@ -2535,10 +4794,14 @@ const renderReport = () => {
 
   selected.skills.forEach((skill) => {
     const percent = getLevelPercent(skill.assessed_level_code);
+    const artifactHint = buildArtifactHint(skill);
     const item = document.createElement('article');
     item.className = 'report-skill-row';
     item.innerHTML =
-      '<div class="report-skill-name">' + skill.skill_name + '</div>' +
+      '<div class="report-skill-name">' +
+      '<strong>' + skill.skill_name + '</strong>' +
+      (artifactHint ? '<span class="skill-artifact-hint">' + artifactHint + '</span>' : '') +
+      '</div>' +
       '<div class="report-skill-level">' + skill.assessed_level_name + '</div>' +
       '<div class="report-skill-progress">' +
       '<div class="report-skill-progress-track"><div class="report-skill-progress-fill" style="width:' + percent + '%"></div></div>' +
@@ -2554,17 +4817,23 @@ const openReport = () => {
   hideAllPanels();
   renderReport();
   reportPanel.classList.remove('hidden');
-  clearAssessmentContext();
+  clearAssessmentStorage();
 };
 
 const loadSkillAssessments = async () => {
   if (!state.pendingUser?.id || !state.assessmentSessionId) {
+    state.reportInterpretation = null;
     return;
   }
 
-  const response = await fetch('/users/' + state.pendingUser.id + '/assessment/' + state.assessmentSessionId + '/skill-assessments');
-  const data = await readApiResponse(response, 'Не удалось загрузить профиль компетенций.');
+  const [skillsResponse, interpretationResponse] = await Promise.all([
+    fetch('/users/' + state.pendingUser.id + '/assessment/' + state.assessmentSessionId + '/skill-assessments'),
+    fetch('/users/' + state.pendingUser.id + '/assessment/' + state.assessmentSessionId + '/report-interpretation'),
+  ]);
+  const data = await readApiResponse(skillsResponse, 'Не удалось загрузить профиль компетенций.');
+  const interpretation = await readApiResponse(interpretationResponse, 'Не удалось загрузить интерпретацию результатов.');
   state.skillAssessments = data;
+  state.reportInterpretation = interpretation;
 };
 
 const tryOpenReportAfterProcessing = () => {
@@ -2722,6 +4991,52 @@ const completeProcessingAndOpenReport = async () => {
   }
 };
 
+const parseInterviewAssistantMessage = (text) => {
+  const normalized = String(text || '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parts = normalized.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const task = parts[parts.length - 1];
+    const context = parts.slice(0, -1).join('\n\n').trim();
+    if (looksLikeInterviewTask(task) && context) {
+      return { context, task };
+    }
+  }
+
+  const sentences = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((part) => part.trim()).filter(Boolean) || [];
+  if (sentences.length >= 2) {
+    const task = sentences[sentences.length - 1];
+    const context = sentences.slice(0, -1).join(' ').trim();
+    if (looksLikeInterviewTask(task) && context) {
+      return { context, task };
+    }
+  }
+
+  return null;
+};
+
+const looksLikeInterviewTask = (text) => {
+  const normalized = String(text || '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return [
+    'как вы',
+    'ответьте',
+    'предложите',
+    'уточните',
+    'зафиксируйте',
+    'проведите',
+    'подготовьте',
+    'опишите',
+    'сформируйте',
+    'выберите',
+  ].some((prefix) => normalized.startsWith(prefix));
+};
+
 const addInterviewMessage = (role, text) => {
   const row = document.createElement('div');
   row.className = 'interview-message' + (role === 'user' ? ' own' : '');
@@ -2733,16 +5048,49 @@ const addInterviewMessage = (role, text) => {
   }
   const bubble = document.createElement('div');
   bubble.className = 'interview-bubble ' + (role === 'user' ? 'user' : 'bot');
-  bubble.textContent = text;
+  if (role === 'user') {
+    bubble.textContent = text;
+  } else {
+    const parsed = parseInterviewAssistantMessage(text);
+    if (parsed) {
+      bubble.classList.add('structured');
+
+      const contextSection = document.createElement('div');
+      contextSection.className = 'interview-bubble-section';
+      contextSection.innerHTML =
+        '<div class="interview-bubble-label">Вводные данные</div>' +
+        '<div class="interview-bubble-text"></div>';
+      contextSection.querySelector('.interview-bubble-text').textContent = parsed.context;
+      bubble.appendChild(contextSection);
+
+      const taskSection = document.createElement('div');
+      taskSection.className = 'interview-bubble-section task';
+      taskSection.innerHTML =
+        '<div class="interview-bubble-label">Что нужно сделать</div>' +
+        '<div class="interview-bubble-task"></div>';
+      taskSection.querySelector('.interview-bubble-task').textContent = parsed.task;
+      bubble.appendChild(taskSection);
+    } else {
+      bubble.textContent = text;
+    }
+  }
   row.appendChild(bubble);
   interviewMessages.appendChild(row);
+  interviewMessages.scrollTop = interviewMessages.scrollHeight;
+};
+
+const addInterviewHint = (text) => {
+  const item = document.createElement('div');
+  item.className = 'interview-hint';
+  item.textContent = text;
+  interviewMessages.appendChild(item);
   interviewMessages.scrollTop = interviewMessages.scrollHeight;
 };
 
 const renderInterviewMeta = () => {
   interviewCaseBadge.textContent = 'Кейс ' + state.assessmentCaseNumber + ' из ' + state.assessmentTotalCases;
   interviewCaseTitle.textContent = state.assessmentCaseTitle || 'Кейс';
-  interviewCaseStatus.textContent = 'Коммуникатор ведет диалог по текущему кейсу и фиксирует ответы и результат в БД.';
+  interviewCaseStatus.textContent = '';
 };
 
 const renderCaseProgress = (assessmentCompleted = false) => {
@@ -2889,13 +5237,8 @@ const handleAssessmentResponse = (data) => {
   }
   addInterviewMessage('assistant', assistantMessage);
 
-  if (data.case_completed || data.time_expired) {
-    interviewSummary.classList.remove('hidden');
-    interviewSummary.textContent =
-      data.time_expired
-        ? 'Кейс завершен по тайм-ауту. Диалог пользователя сохранен в БД.'
-        : 'Кейс завершен. Диалог пользователя сохранен в БД.';
-  }
+  interviewSummary.classList.add('hidden');
+  interviewSummary.textContent = '';
 
   if (data.assessment_completed) {
     interviewCaseStatus.textContent = 'Все кейсы пройдены, результаты сохранены в БД.';
@@ -2981,26 +5324,24 @@ const startAssessmentInterview = async () => {
   showError(interviewError, '');
 
   try {
-    showLoader(
-      'Подготавливаем ассессмент',
-      'Система подбирает кейсы, персонализирует материалы и готовит интервью.',
-      loaderFlows.startAssessment,
-    );
-    const operationId = createOperationId();
-    startLoaderProgressPolling(operationId);
-    const response = await fetch('/users/' + state.pendingUser.id + '/assessment/start', {
-      method: 'POST',
-      headers: {
-        'X-Agent4K-Operation-Id': operationId,
-      },
-    });
-    const data = await readApiResponse(response, 'Не удалось запустить интервью по кейсам.');
+    const preparedData = state.preparedAssessmentStartResponse;
+    let data = preparedData;
+    if (!data) {
+      const response = await fetch('/users/' + state.pendingUser.id + '/assessment/start', {
+        method: 'POST',
+      });
+      data = await readApiResponse(response, 'Не удалось запустить интервью по кейсам.');
+    }
 
-    hideLoader();
+    state.preparedAssessmentStartResponse = null;
+    state.assessmentPreparationStatus = 'idle';
+    state.assessmentPreparationProgressPercent = 0;
+    state.assessmentPreparationTitle = '';
+    state.assessmentPreparationMessage = '';
+    renderAssessmentPreparationState();
     openInterview();
     handleAssessmentResponse(data);
   } catch (error) {
-    hideLoader();
     if (shouldRedirectToProfileOnAssessmentError(error.message)) {
       await openProfile();
       return;
@@ -3028,9 +5369,12 @@ const renderOnboarding = () => {
 const openOnboarding = () => {
   state.onboardingIndex = 0;
   state.onboardingShown = true;
+  setCurrentScreen('onboarding');
+  persistAssessmentContext();
   renderOnboarding();
   hideAllPanels();
   onboardingPanel.classList.remove('hidden');
+  syncUrlState('onboarding');
 };
 
 const returnToStart = () => {
@@ -3040,6 +5384,18 @@ const returnToStart = () => {
   authPanel.classList.remove('hidden');
   phoneInput.value = '';
   phoneInput.focus();
+  window.history.replaceState({ screen: 'auth' }, '', '/');
+};
+
+const navigateBackOrFallback = (fallback) => {
+  if (window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+
+  if (typeof fallback === 'function') {
+    fallback();
+  }
 };
 
 phoneForm.addEventListener('submit', async (event) => {
@@ -3061,33 +5417,45 @@ phoneForm.addEventListener('submit', async (event) => {
   }
 
   try {
-    showLoader(
-      'Проверяем профиль',
-      'Система ищет пользователя по номеру телефона и подготавливает следующий шаг.',
-      loaderFlows.lookupUser,
-    );
-    const operationId = createOperationId();
-    startLoaderProgressPolling(operationId);
+    clearAssessmentContext();
+    state.sessionId = null;
+    state.pendingAgentMessage = null;
+    state.pendingRoleOptions = [];
+    state.pendingUser = null;
+    state.dashboard = null;
+    state.isAdmin = false;
+    state.adminDashboard = null;
+    state.isNewUserFlow = false;
+    safeStorage.removeItem(STORAGE_KEYS.sessionId);
+    safeStorage.removeItem(STORAGE_KEYS.pendingAgentMessage);
+    safeStorage.removeItem(STORAGE_KEYS.pendingRoleOptions);
     const response = await fetch('/users/check-or-create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Agent4K-Operation-Id': operationId,
       },
-      body: JSON.stringify({ phone: rawPhone }),
+      body: JSON.stringify({ phone: normalizedPhone }),
     });
     const data = await readApiResponse(response, 'Не удалось проверить пользователя.');
+    const agent = data.agent || null;
 
-    state.sessionId = data.agent.session_id;
-    state.pendingAgentMessage = data.agent.message;
+    state.sessionId = agent?.session_id || null;
     state.pendingUser = data.user || null;
     state.dashboard = data.dashboard || null;
-    state.isAdmin = Boolean(data.is_admin);
+    state.isAdmin = isAdminUserPayload(data.user, Boolean(data.is_admin));
     state.adminDashboard = data.admin_dashboard || null;
-    state.pendingRoleOptions = Array.isArray(data.agent.role_options) ? data.agent.role_options : [];
+    state.pendingRoleOptions = Array.isArray(agent?.role_options) ? agent.role_options : [];
     state.isNewUserFlow = !data.exists;
+    state.pendingAgentMessage = data.exists
+      ? buildExistingUserAgentMessage(data.user, agent?.message || data.message || '')
+      : (agent?.message || data.message || null);
 
-    if (data.is_admin) {
+    if (state.isAdmin) {
+      state.sessionId = null;
+      state.pendingAgentMessage = null;
+      state.pendingRoleOptions = [];
+      setCurrentScreen('admin');
+      persistAssessmentContext();
       hideLoader();
       openAdminDashboard();
       return;
@@ -3121,6 +5489,23 @@ onboardingSkip.addEventListener('click', () => {
   returnToStart();
 });
 
+if (onboardingBackButton) {
+  onboardingBackButton.addEventListener('click', () => {
+    if (state.onboardingIndex > 0) {
+      state.onboardingIndex -= 1;
+      renderOnboarding();
+      return;
+    }
+    returnToStart();
+  });
+}
+
+if (onboardingExitButton) {
+  onboardingExitButton.addEventListener('click', () => {
+    returnToStart();
+  });
+}
+
 chatForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const text = chatInput.value.trim();
@@ -3145,6 +5530,12 @@ if (adminOpenReportsButton) {
   });
 }
 
+if (adminOpenMethodologyButton) {
+  adminOpenMethodologyButton.addEventListener('click', () => {
+    void openAdminMethodology();
+  });
+}
+
 if (adminPeriodSelect) {
   adminPeriodSelect.addEventListener('change', () => {
     const nextPeriod = adminPeriodSelect.value || '30d';
@@ -3163,6 +5554,89 @@ if (adminPeriodSelect) {
 if (adminReportsBackButton) {
   adminReportsBackButton.addEventListener('click', () => {
     openAdminDashboard();
+  });
+}
+
+if (adminMethodologyBackButton) {
+  adminMethodologyBackButton.addEventListener('click', () => {
+    openAdminDashboard();
+  });
+}
+
+if (adminMethodologySearch) {
+  adminMethodologySearch.addEventListener('input', () => {
+    state.adminMethodologySearch = adminMethodologySearch.value || '';
+    state.adminMethodologyPage = 1;
+    persistAssessmentContext();
+    renderAdminMethodology();
+  });
+}
+
+if (adminMethodologyPrevButton) {
+  adminMethodologyPrevButton.addEventListener('click', () => {
+    state.adminMethodologyPage = Math.max(1, Number(state.adminMethodologyPage || 1) - 1);
+    renderAdminMethodology();
+  });
+}
+
+if (adminMethodologyNextButton) {
+  adminMethodologyNextButton.addEventListener('click', () => {
+    state.adminMethodologyPage = Number(state.adminMethodologyPage || 1) + 1;
+    renderAdminMethodology();
+  });
+}
+
+if (adminMethodologyDetailClose) {
+  adminMethodologyDetailClose.addEventListener('click', () => {
+    closeAdminMethodologyDetail();
+  });
+}
+
+if (adminMethodologyDetailEdit) {
+  adminMethodologyDetailEdit.addEventListener('click', () => {
+    startAdminMethodologyEditing();
+  });
+}
+
+if (adminMethodologyDetailCancel) {
+  adminMethodologyDetailCancel.addEventListener('click', () => {
+    cancelAdminMethodologyEditing();
+  });
+}
+
+if (adminMethodologyDetailSave) {
+  adminMethodologyDetailSave.addEventListener('click', () => {
+    void submitAdminMethodologyEditing();
+  });
+}
+
+if (adminMethodologyDrawerBackdrop) {
+  adminMethodologyDrawerBackdrop.addEventListener('click', () => {
+    closeAdminMethodologyDetail();
+  });
+}
+
+if (adminMethodologyTabLibrary) {
+  adminMethodologyTabLibrary.addEventListener('click', () => {
+    state.adminMethodologyTab = 'library';
+    persistAssessmentContext();
+    renderAdminMethodologyTab();
+  });
+}
+
+if (adminMethodologyTabBranches) {
+  adminMethodologyTabBranches.addEventListener('click', () => {
+    state.adminMethodologyTab = 'branches';
+    persistAssessmentContext();
+    renderAdminMethodologyTab();
+  });
+}
+
+if (adminMethodologyTabPassports) {
+  adminMethodologyTabPassports.addEventListener('click', () => {
+    state.adminMethodologyTab = 'passports';
+    persistAssessmentContext();
+    renderAdminMethodologyTab();
   });
 }
 
@@ -3220,19 +5694,31 @@ welcomeProfileButton.addEventListener('click', () => {
   void openProfile();
 });
 
+const handleAssessmentEntryClick = () => {
+  if (canReusePreparedAssessment()) {
+    openPrechat();
+    return;
+  }
+  void beginAssessmentPreparation({ force: true });
+};
+
 assessmentActionButton.addEventListener('click', () => {
-  openPrechat();
+  handleAssessmentEntryClick();
 });
 
 startFirstAssessmentButton.addEventListener('click', () => {
-  openPrechat();
+  handleAssessmentEntryClick();
 });
 
 libraryStartButton.addEventListener('click', () => {
-  openPrechat();
+  handleAssessmentEntryClick();
 });
 
 prechatStartButton.addEventListener('click', () => {
+  if (!canReusePreparedAssessment() && !hasIncompleteAssessment()) {
+    void beginAssessmentPreparation({ force: true });
+    return;
+  }
   void startAssessmentInterview();
 });
 
@@ -3313,6 +5799,26 @@ interviewGoProcessingButton.addEventListener('click', () => {
   navigateToScreen('processing');
 });
 
+if (interviewBackButton) {
+  interviewBackButton.addEventListener('click', () => {
+    navigateBackOrFallback(() => {
+      openPrechat();
+    });
+  });
+}
+
+if (interviewProfileButton) {
+  interviewProfileButton.addEventListener('click', () => {
+    void openProfile();
+  });
+}
+
+if (interviewExitButton) {
+  interviewExitButton.addEventListener('click', () => {
+    void logoutAndReturnToStart();
+  });
+}
+
 processingBackButton.addEventListener('click', () => {
   clearProcessingTimer();
   openWelcomeScreen();
@@ -3326,13 +5832,57 @@ profileBackButton.addEventListener('click', () => {
   openWelcomeScreen();
 });
 
-profileOpenReportsButton.addEventListener('click', () => {
-  void openReports();
+profileAvatarInput.addEventListener('change', () => {
+  const [file] = Array.from(profileAvatarInput.files || []);
+  if (!file) {
+    return;
+  }
+  if (!file.type.startsWith('image/')) {
+    setProfileStatus('Можно загрузить только изображение.', 'error');
+    profileAvatarInput.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.profileAvatarDraft = typeof reader.result === 'string' ? reader.result : null;
+    renderProfile();
+    void saveProfile({
+      silent: false,
+      successMessage: 'Фото профиля обновлено.',
+    });
+    profileAvatarInput.value = '';
+  };
+  reader.onerror = () => {
+    setProfileStatus('Не удалось прочитать изображение.', 'error');
+  };
+  reader.readAsDataURL(file);
 });
 
-reportsBackButton.addEventListener('click', () => {
-  openWelcomeScreen();
+profileEmail.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    profileEmail.blur();
+  }
 });
+
+profileEmail.addEventListener('blur', () => {
+  const currentEmail = state.profileSummary?.user?.email || state.pendingUser?.email || '';
+  const nextEmail = profileEmail.value.trim();
+  if (nextEmail === currentEmail) {
+    return;
+  }
+  void saveProfile({
+    silent: false,
+    successMessage: 'Email обновлен.',
+  });
+});
+
+if (reportsBackButton) {
+  reportsBackButton.addEventListener('click', () => {
+    openWelcomeScreen();
+  });
+}
 
 reportDownloadButton.addEventListener('click', () => {
   if (!state.pendingUser?.id || !state.assessmentSessionId) {
@@ -3345,6 +5895,18 @@ reportDownloadButton.addEventListener('click', () => {
 const bootApp = async () => {
   resetChat();
   const params = new URLSearchParams(window.location.search);
+  if (params.get('reset') === '1') {
+    clearAssessmentContext();
+    try {
+      await fetch('/users/session/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+    } catch (_error) {
+      // ignore reset cleanup network issues
+    }
+    window.history.replaceState({}, '', '/?ui=' + Date.now());
+  }
   const screen = params.get('screen') || (safeStorage.getItem(STORAGE_KEYS.completionPending) ? 'processing' : null);
   restoreAssessmentContext();
   restoreAssessmentContextFromParams(params);
@@ -3388,6 +5950,10 @@ const bootApp = async () => {
   }
 
   if (state.pendingUser?.id) {
+    if (state.currentScreen === 'onboarding') {
+      openOnboarding();
+      return;
+    }
     if (state.currentScreen === 'admin-reports' && state.isAdmin) {
       try {
         await loadAdminReports();
@@ -3395,6 +5961,15 @@ const bootApp = async () => {
         console.error('Failed to restore admin reports', error);
       }
       void openAdminReports();
+      return;
+    }
+    if (state.currentScreen === 'admin-methodology' && state.isAdmin) {
+      try {
+        await loadAdminMethodology();
+      } catch (error) {
+        console.error('Failed to restore admin methodology', error);
+      }
+      void openAdminMethodology();
       return;
     }
     if (state.currentScreen === 'admin-report-detail' && state.isAdmin && state.adminReportDetailSessionId) {
@@ -3438,5 +6013,9 @@ const bootApp = async () => {
     }
   }
 };
+
+window.addEventListener('popstate', () => {
+  void bootApp();
+});
 
 void bootApp();
