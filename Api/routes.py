@@ -915,7 +915,24 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
             p.user_constraints
         FROM user_sessions us
         JOIN users u ON u.id = us.user_id
-        LEFT JOIN user_role_profiles p ON p.id = u.active_profile_id
+        LEFT JOIN LATERAL (
+            SELECT
+                urp.raw_position,
+                urp.raw_duties,
+                urp.normalized_duties,
+                urp.user_domain,
+                urp.user_processes,
+                urp.user_tasks,
+                urp.user_stakeholders,
+                urp.user_constraints
+            FROM user_role_profiles urp
+            WHERE urp.user_id = u.id
+            ORDER BY
+                CASE WHEN urp.id = u.active_profile_id THEN 0 ELSE 1 END,
+                urp.profile_version DESC NULLS LAST,
+                urp.id DESC
+            LIMIT 1
+        ) p ON TRUE
         WHERE us.id = %s
           AND us.assessment_code = 'competencies_4k'
           AND regexp_replace(COALESCE(u.phone, ''), '\\D', '', 'g') <> %s

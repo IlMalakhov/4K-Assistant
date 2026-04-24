@@ -1,4 +1,4 @@
-const APP_RELEASE = '1.2.1';
+const APP_RELEASE = '1.2.2';
 
 const state = {
   sessionId: null,
@@ -373,6 +373,13 @@ const adminReportDetailGroup = document.getElementById('admin-report-detail-grou
 const adminReportDetailStatus = document.getElementById('admin-report-detail-status');
 const adminReportDetailStatusBadge = document.getElementById('admin-report-detail-status-badge');
 const adminReportDetailCompetencyBars = document.getElementById('admin-report-detail-competency-bars');
+const adminReportDetailProfilePosition = document.getElementById('admin-report-detail-profile-position');
+const adminReportDetailProfileDuties = document.getElementById('admin-report-detail-profile-duties');
+const adminReportDetailProfileDomain = document.getElementById('admin-report-detail-profile-domain');
+const adminReportDetailProfileProcesses = document.getElementById('admin-report-detail-profile-processes');
+const adminReportDetailProfileTasks = document.getElementById('admin-report-detail-profile-tasks');
+const adminReportDetailProfileStakeholders = document.getElementById('admin-report-detail-profile-stakeholders');
+const adminReportDetailProfileConstraints = document.getElementById('admin-report-detail-profile-constraints');
 const adminReportDetailCompetencyChart = document.getElementById('admin-report-detail-competency-chart');
 const adminReportDetailCompetencyFallback = document.getElementById('admin-report-detail-competency-fallback');
 const adminReportDetailSkillsRadarChart = document.getElementById('admin-report-detail-skills-radar-chart');
@@ -3266,6 +3273,18 @@ const formatRadarLabel = (text) => {
   return lines.length > 1 ? lines : [rawText];
 };
 
+const renderAdminProfileSummaryList = (node, items) => {
+  if (!node) {
+    return;
+  }
+  const values = Array.isArray(items) ? items.filter((item) => String(item || '').trim()) : [];
+  if (!values.length) {
+    node.innerHTML = '<li>Нет данных</li>';
+    return;
+  }
+  node.innerHTML = values.map((item) => '<li>' + escapeHtml(String(item)) + '</li>').join('');
+};
+
 const buildAdminSkillRadarFallbackMarkup = (skills) =>
   '<div class="admin-detail-skill-radar-list">' +
     skills.map((skill) => (
@@ -3592,6 +3611,19 @@ const renderAdminReportDetail = () => {
     }
     adminReportDetailInsightTitle.textContent = 'AI insight недоступен';
     adminReportDetailInsightText.textContent = 'После загрузки результатов здесь появится интерпретация профиля пользователя.';
+    if (adminReportDetailProfilePosition) {
+      adminReportDetailProfilePosition.textContent = 'Нет данных';
+    }
+    if (adminReportDetailProfileDuties) {
+      adminReportDetailProfileDuties.textContent = 'Нет данных';
+    }
+    if (adminReportDetailProfileDomain) {
+      adminReportDetailProfileDomain.textContent = 'Нет данных';
+    }
+    renderAdminProfileSummaryList(adminReportDetailProfileProcesses, []);
+    renderAdminProfileSummaryList(adminReportDetailProfileTasks, []);
+    renderAdminProfileSummaryList(adminReportDetailProfileStakeholders, []);
+    renderAdminProfileSummaryList(adminReportDetailProfileConstraints, []);
     renderAdminCompetencyVisual([]);
     renderAdminSkillRadar([]);
     if (adminReportDetailMbtiAxes) {
@@ -3641,6 +3673,21 @@ const renderAdminReportDetail = () => {
   }
   adminReportDetailInsightTitle.textContent = detail.insight_title || 'AI insight недоступен';
   adminReportDetailInsightText.textContent = detail.insight_text || 'Для этой записи пока не удалось построить интерпретацию результатов.';
+
+  const profileSummary = detail.profile_summary || {};
+  if (adminReportDetailProfilePosition) {
+    adminReportDetailProfilePosition.textContent = profileSummary.position || 'Нет данных';
+  }
+  if (adminReportDetailProfileDuties) {
+    adminReportDetailProfileDuties.textContent = profileSummary.duties || 'Нет данных';
+  }
+  if (adminReportDetailProfileDomain) {
+    adminReportDetailProfileDomain.textContent = profileSummary.domain || 'Нет данных';
+  }
+  renderAdminProfileSummaryList(adminReportDetailProfileProcesses, profileSummary.processes);
+  renderAdminProfileSummaryList(adminReportDetailProfileTasks, profileSummary.tasks);
+  renderAdminProfileSummaryList(adminReportDetailProfileStakeholders, profileSummary.stakeholders);
+  renderAdminProfileSummaryList(adminReportDetailProfileConstraints, profileSummary.constraints);
 
   renderAdminCompetencyVisual(competencyItems);
   renderAdminSkillRadar(state.adminReportDetailSkillAssessments);

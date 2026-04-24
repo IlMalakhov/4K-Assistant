@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+from Api.report_font_utils import ensure_pdf_font
 
 class AdminReportDialoguePdfService:
     FONT_NAME = "ArialUnicodeAgent4KAdminDialogue"
-    FONT_PATH = Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf")
 
     def __init__(self) -> None:
         self._font_registered = False
@@ -23,9 +20,7 @@ class AdminReportDialoguePdfService:
     def _ensure_font(self) -> None:
         if self._font_registered:
             return
-        if not self.FONT_PATH.exists():
-            raise FileNotFoundError(f"Font not found: {self.FONT_PATH}")
-        pdfmetrics.registerFont(TTFont(self.FONT_NAME, str(self.FONT_PATH)))
+        self.FONT_NAME = ensure_pdf_font(self.FONT_NAME)
         self._font_registered = True
 
     def build_pdf(self, detail) -> tuple[str, bytes]:

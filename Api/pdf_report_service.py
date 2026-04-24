@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 from io import BytesIO
-from pathlib import Path
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from Api.database import get_level_percent_map
+from Api.report_font_utils import ensure_pdf_font
 from Api.report_growth_logic import (
     ZERO_SIGNAL_RECOMMENDATIONS,
     WEAK_SIGNAL_RECOMMENDATIONS,
@@ -26,7 +24,6 @@ from Api.report_growth_logic import (
 
 class PdfReportService:
     FONT_NAME = "ArialUnicodeAgent4K"
-    FONT_PATH = Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf")
 
     def __init__(self) -> None:
         self._font_registered = False
@@ -34,9 +31,7 @@ class PdfReportService:
     def _ensure_font(self) -> None:
         if self._font_registered:
             return
-        if not self.FONT_PATH.exists():
-            raise FileNotFoundError(f"Font not found: {self.FONT_PATH}")
-        pdfmetrics.registerFont(TTFont(self.FONT_NAME, str(self.FONT_PATH)))
+        self.FONT_NAME = ensure_pdf_font(self.FONT_NAME)
         self._font_registered = True
 
     def _load_user(self, connection, user_id: int):
