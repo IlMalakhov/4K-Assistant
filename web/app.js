@@ -3504,10 +3504,21 @@ const renderAdminReports = () => {
         '<div class="admin-report-score-track"><span style="width:' + scorePercent + '%"></span></div>' +
       '</div>' +
       '<div class="admin-report-cell admin-report-mbti">' + (item.mbti_type || 'Нет данных') + '</div>' +
-      '<div class="admin-report-cell admin-report-date">' + formatAdminReportDate(item) + '</div>';
+      '<div class="admin-report-cell admin-report-date">' + formatAdminReportDate(item) + '</div>' +
+      '<div class="admin-report-cell admin-report-download-action">' +
+        '<button class="ghost-button compact-ghost admin-report-download-button" type="button" aria-label="Скачать PDF отчета по сессии ' + item.session_id + '">Скачать</button>' +
+      '</div>';
     const openDetail = () => {
       void openAdminReportDetail(item.session_id);
     };
+    const reportDownloadButton = row.querySelector('.admin-report-download-button');
+    if (reportDownloadButton) {
+      reportDownloadButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.location.href = '/users/' + item.user_id + '/assessment/' + item.session_id + '/report.pdf';
+      });
+    }
     row.addEventListener('click', openDetail);
     row.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -3748,12 +3759,16 @@ const renderAdminReportDetail = () => {
               '</section>' +
               '<section class="admin-detail-case-panel">' +
                 '<details class="admin-detail-case-section" open>' +
-                  '<summary class="admin-detail-case-section-summary">Диалог по кейсу</summary>' +
-                  '<div class="admin-detail-case-section-body">' +
-                    '<div class="admin-detail-case-dialogue">' +
-                      ((item.dialogue || []).length
-                        ? item.dialogue.map((message) =>
-                            '<article class="admin-detail-case-message ' + (message.role === 'user' ? 'is-user' : 'is-assistant') + '">' +
+                '<summary class="admin-detail-case-section-summary">Диалог по кейсу</summary>' +
+                '<div class="admin-detail-case-section-body">' +
+                  '<div class="admin-detail-case-dialogue">' +
+                    '<div class="admin-detail-case-dialogue-toolbar">' +
+                      '<span class="admin-detail-case-dialogue-caption">Диалог пользователя с агентом</span>' +
+                      '<button type="button" class="ghost-button compact-ghost admin-detail-case-dialogue-pdf-button" data-session-id="' + escapeHtml(detail.session_id) + '" data-session-case-id="' + escapeHtml(item.session_case_id) + '">Скачать диалог PDF</button>' +
+                    '</div>' +
+                    ((item.dialogue || []).length
+                      ? item.dialogue.map((message) =>
+                          '<article class="admin-detail-case-message ' + (message.role === 'user' ? 'is-user' : 'is-assistant') + '">' +
                               '<span class="admin-detail-case-message-role">' + escapeHtml(message.role === 'user' ? 'Пользователь' : 'Ассистент') + '</span>' +
                               '<p>' + escapeHtml(message.message_text || '') + '</p>' +
                             '</article>'
@@ -3792,6 +3807,15 @@ const renderAdminReportDetail = () => {
               '</div>' +
             '</section>' +
           '</div>';
+        const caseDialoguePdfButton = details.querySelector('.admin-detail-case-dialogue-pdf-button');
+        if (caseDialoguePdfButton) {
+          caseDialoguePdfButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            window.location.href =
+              '/users/admin/reports/' + detail.session_id + '/cases/' + item.session_case_id + '/dialogue.pdf';
+          });
+        }
         adminReportDetailCases.appendChild(details);
       });
     }

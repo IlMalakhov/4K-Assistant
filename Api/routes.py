@@ -8,6 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Response as FastAPIResponse
 from fastapi.responses import Response
 
+from Api.admin_report_dialogue_pdf_service import admin_report_dialogue_pdf_service
 from Api.admin_reports_pdf_service import admin_reports_pdf_service
 from Api.agent import interviewer_agent
 from Api.database import get_connection, get_level_percent_map, recompute_case_quality_checks
@@ -458,8 +459,9 @@ def _build_dashboard(connection, user: UserResponse) -> UserDashboard:
         for row in report_rows
     ]
 
+    assessment_allowed = str(user.job_description or "").strip().lower() != ADMIN_ROLE_NAME.lower()
     available_assessments: list[AvailableAssessment] = []
-    if not is_complete:
+    if assessment_allowed and not is_complete:
         available_assessments.append(
             AvailableAssessment(
                 code="competencies_4k",
@@ -470,19 +472,27 @@ def _build_dashboard(connection, user: UserResponse) -> UserDashboard:
             )
         )
 
+    active_assessment = AssessmentCard(
+        code="competencies_4k",
+        title="4K Competency Assessment",
+        description=(
+            "Комплексная оценка критического мышления, креативности, коммуникации и кооперации."
+            if assessment_allowed
+            else "Для роли «Администратор» прохождение ассессмента недоступно."
+        ),
+        progress_percent=progress_percent if assessment_allowed else 0,
+        completed_cases=completed_cases if assessment_allowed else 0,
+        total_cases=total_cases if assessment_allowed else 0,
+        status_label=(
+            "Новый цикл оценки" if is_complete else "Продолжить ассессмент"
+        ) if assessment_allowed else "Недоступно для роли",
+        button_label=("Пройти ассессмент снова" if is_complete else "Продолжить") if assessment_allowed else "Недоступно",
+    )
+
     greeting_name = user.full_name.split()[0] if user.full_name else "коллега"
     return UserDashboard(
         greeting_name=greeting_name,
-        active_assessment=AssessmentCard(
-            code="competencies_4k",
-            title="4K Competency Assessment",
-            description="Оценка критического мышления, креативности, коммуникации и кооперации.",
-            progress_percent=progress_percent,
-            completed_cases=completed_cases,
-            total_cases=total_cases,
-            status_label="Новый цикл оценки" if is_complete else "Продолжить ассессмент",
-            button_label="Пройти ассессмент снова" if is_complete else "Продолжить",
-        ),
+        active_assessment=active_assessment,
         available_assessments=available_assessments,
         reports_total=int(reports_total_row["reports_total"]) if reports_total_row and reports_total_row["reports_total"] is not None else 0,
         reports=reports,
@@ -894,9 +904,18 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
             us.finished_at,
             u.full_name,
             COALESCE(NULLIF(TRIM(u.company_industry), ''), 'Не указана') AS group_name,
-            COALESCE(NULLIF(TRIM(u.job_description), ''), 'Не указана') AS role_name
+            COALESCE(NULLIF(TRIM(u.job_description), ''), 'Не указана') AS role_name,
+            p.raw_position,
+            p.raw_duties,
+            p.normalized_duties,
+            p.user_domain,
+            p.user_processes,
+            p.user_tasks,
+            p.user_stakeholders,
+            p.user_constraints
         FROM user_sessions us
         JOIN users u ON u.id = us.user_id
+        LEFT JOIN user_role_profiles p ON p.id = u.active_profile_id
         WHERE us.id = %s
           AND us.assessment_code = 'competencies_4k'
           AND regexp_replace(COALESCE(u.phone, ''), '\\D', '', 'g') <> %s
@@ -1113,6 +1132,15 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
         task_text = task_match.group(1).strip() if task_match else None
         if context_text or task_text:
             return context_text or None, task_text or None
+        structured_match = re.search(
+            r"^(.*?)(?:\n\s*\n)?Что нужно сделать:\s*(.*)\Z",
+            prompt_text,
+            flags=re.DOTALL,
+        )
+        if structured_match:
+            context_text = structured_match.group(1).strip()
+            task_text = structured_match.group(2).strip()
+            return context_text or None, task_text or None
         if "\n\n" in prompt_text:
             context_text, task_text = prompt_text.rsplit("\n\n", 1)
             return context_text.strip() or None, task_text.strip() or None
@@ -1171,6 +1199,15 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
         strengths=strengths,
         growth_areas=growth_areas,
         quotes=quotes,
+        profile_summary={
+            "position": (session_row["raw_position"] or session_row["role_name"] or "").strip() or None,
+            "duties": (session_row["normalized_duties"] or session_row["raw_duties"] or "").strip() or None,
+            "domain": (session_row["user_domain"] or session_row["group_name"] or "").strip() or None,
+            "processes": _parse_json_array_field(session_row["user_processes"]),
+            "tasks": _parse_json_array_field(session_row["user_tasks"]),
+            "stakeholders": _parse_json_array_field(session_row["user_stakeholders"]),
+            "constraints": _parse_json_array_field(session_row["user_constraints"]),
+        },
         case_items=case_items,
     )
 
@@ -2102,6 +2139,65 @@ def get_admin_report_detail(session_id: int, request: Request) -> AdminReportDet
         if not _is_admin_user(connection, user):
             raise HTTPException(status_code=403, detail="Admin access required")
         return _build_admin_report_detail(connection, session_id)
+
+
+@router.get("/admin/reports/{session_id}/dialogue.pdf")
+def download_admin_report_dialogue_pdf(session_id: int, request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    user = web_session_service.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Admin session not found")
+    with get_connection() as connection:
+        if not _is_admin_user(connection, user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        try:
+            detail = _build_admin_report_detail(connection, session_id)
+            filename, pdf_bytes = admin_report_dialogue_pdf_service.build_pdf(detail)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                f'filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
+@router.get("/admin/reports/{session_id}/cases/{session_case_id}/dialogue.pdf")
+def download_admin_report_case_dialogue_pdf(session_id: int, session_case_id: int, request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    user = web_session_service.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Admin session not found")
+    with get_connection() as connection:
+        if not _is_admin_user(connection, user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        try:
+            detail = _build_admin_report_detail(connection, session_id)
+            case_item = next((item for item in detail.case_items if int(item.session_case_id) == int(session_case_id)), None)
+            if case_item is None:
+                raise HTTPException(status_code=404, detail="Case dialogue not found")
+            filename, pdf_bytes = admin_report_dialogue_pdf_service.build_case_pdf(detail, case_item)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                f'filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
 
 
 @router.get("/admin/reports.pdf")

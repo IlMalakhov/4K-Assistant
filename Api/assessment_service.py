@@ -705,7 +705,11 @@ class AssessmentService:
                 session_case_id,
                 deepseek_client.model,
                 prompt_text,
-                f"{personalized_context}\n\n{personalized_task}",
+                deepseek_client.build_opening_message(
+                    case_title=case_row["title"] or "",
+                    case_context=personalized_context,
+                    case_task=personalized_task,
+                ),
                 prompt_text,
             ),
         )
@@ -1480,6 +1484,9 @@ class AssessmentService:
             marker = "Personalized task:"
             if marker in text:
                 return text.split(marker, 1)[0].replace("Personalized case context:", "", 1).strip()
+            marker = "Что нужно сделать:"
+            if marker in text:
+                return text.split(marker, 1)[0].strip()
             if "\n\n" in text:
                 return text.rsplit("\n\n", 1)[0].strip()
             return text.strip()
@@ -1500,6 +1507,9 @@ class AssessmentService:
         if prompt_row and prompt_row["user_prompt"]:
             text = prompt_row["user_prompt"]
             marker = "Personalized task:"
+            if marker in text:
+                return text.split(marker, 1)[1].strip()
+            marker = "Что нужно сделать:"
             if marker in text:
                 return text.split(marker, 1)[1].strip()
             if "\n\n" in text:

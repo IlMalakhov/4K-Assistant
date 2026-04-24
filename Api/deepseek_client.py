@@ -1006,7 +1006,7 @@ class DeepSeekClient:
         if clean_context:
             parts.append(clean_context)
         if clean_task:
-            parts.append(clean_task)
+            parts.append(f"Что нужно сделать:\n{clean_task}")
         return "\n\n".join(part for part in parts if part).strip()
 
     def evaluate_case_turn(
@@ -2856,7 +2856,7 @@ class DeepSeekClient:
         return f"Сейчас обсуждается идея «{idea}», которая должна сделать процесс более предсказуемым и управляемым."
 
     def _compose_planning_case_context(self, specificity: dict[str, Any]) -> str:
-        workflow = str(specificity.get("workflow_label") or "текущий участок работы")
+        workflow = self._format_case_scope(str(specificity.get("workflow_label") or "текущий участок работы"))
         impact = str(specificity.get("business_impact") or "сроки и качество результата")
         examples = self._specificity_examples_for_case(specificity, case_kind="planning")
         items = self._join_case_items(examples)
@@ -2889,7 +2889,7 @@ class DeepSeekClient:
         )
 
     def _compose_priority_case_context(self, specificity: dict[str, Any]) -> str:
-        workflow = str(specificity.get("workflow_label") or "текущий участок работы")
+        workflow = self._format_case_scope(str(specificity.get("workflow_label") or "текущий участок работы"))
         impact = str(specificity.get("business_impact") or "сроки и качество результата")
         examples = self._specificity_examples_for_case(specificity, case_kind="priority")
         items = self._join_case_items(examples)
@@ -2921,11 +2921,12 @@ class DeepSeekClient:
         )
 
     def _compose_decision_case_context(self, specificity: dict[str, Any]) -> str:
-        workflow = str(specificity.get("workflow_label") or "текущему процессу")
+        workflow = self._format_case_scope(str(specificity.get("workflow_label") or "текущему процессу"))
         stages = self._join_case_items((specificity.get("stage_names") or [])[:3])
         impact = str(specificity.get("business_impact") or "сроки и качество результата")
         source_of_truth = str(specificity.get("source_of_truth") or "внутренним данным")
         issue_summary = str(specificity.get("issue_summary") or specificity.get("decision_theme") or "").strip()
+        decision_theme = str(specificity.get("decision_theme") or "").strip()
         work_items = str(specificity.get("work_items") or "").strip()
         named_stakeholders = str(specificity.get("stakeholder_named_list") or "").strip()
         horeca_markers = self._domain_family_markers().get("horeca", ())
@@ -2943,7 +2944,8 @@ class DeepSeekClient:
                 f"Возникла конкретная проблема: {problem_intro}. "
                 + (f"В ситуации уже участвуют {named_stakeholders}. " if named_stakeholders else "")
                 + (f"Сейчас в фокусе такие позиции: {work_items}. " if work_items else "")
-                + "По одним данным вопрос уже можно считать закрытым, а по другим видно, что результат для гостя не подтвержден и следующий шаг не зафиксирован. "
+                + (f"Нужно принять решение: {decision_theme}. " if decision_theme else "")
+                + "По данным смены вопрос уже можно считать закрытым, но по журналу и комментариям видно, что результат для гостя не подтвержден, а следующий шаг не зафиксирован. "
                 + f"Если поторопиться, пострадают {impact}. Если затянуть решение, напряжение в смене и риск повторной жалобы только вырастут."
             )
         problem_intro = issue_summary or (
@@ -2953,7 +2955,8 @@ class DeepSeekClient:
             f"Возникла конкретная проблема: {problem_intro}. "
             + (f"По ситуации уже вовлечены {named_stakeholders}. " if named_stakeholders else "")
             + (f"Сейчас в фокусе такие рабочие объекты: {work_items}. " if work_items else "")
-            + f"Данные по ситуации частично противоречат друг другу: по одним данным следующий шаг уже можно запускать, а по другим видно, что часть информации еще не подтверждена. "
+            + (f"Нужно принять решение: {decision_theme}. " if decision_theme else "")
+            + f"Данные по ситуации частично противоречат друг другу: в одной части {source_of_truth} шаг выглядит готовым к передаче, а в другой видно, что часть информации еще не подтверждена и решение может оказаться преждевременным. "
             f"Если поторопиться, есть риск ошибки и повторной переделки. Если затянуть решение, пострадают {impact}."
         )
         if stages:
@@ -2962,8 +2965,32 @@ class DeepSeekClient:
             sentence += f" Проверять приходится по {source_of_truth}."
         return sentence
 
+    def _format_case_scope(self, label: str) -> str:
+        value = str(label or "").strip()
+        if not value:
+            return ""
+        if value.startswith("**") and value.endswith("**"):
+            return value
+        return f"**{value}**"
+
+    def _stakeholder_context_sentence(self, type_code: str, named_stakeholders: str) -> str:
+        people = str(named_stakeholders or "").strip()
+        if not people:
+            return ""
+        code = str(type_code or "").upper()
+        mapping = {
+            "F05": f"В распределении задач и контрольных точек уже участвуют {people}.",
+            "F08": f"На выбор первого приоритета уже влияют {people}.",
+            "F09": f"Изменения на этом участке будут заметны для {people}.",
+            "F10": f"Решение по запуску идеи будут обсуждать {people}.",
+            "F03": f"Из-за этих срывов в ситуацию уже вовлечены {people}: им приходится разбирать последствия, уточнять статус и помогать с возвратами или эскалацией.",
+            "F12": f"Из-за этих срывов в ситуацию уже вовлечены {people}: им приходится разбирать последствия, уточнять статус и помогать с возвратами или эскалацией.",
+            "F11": f"Если риск подтвердится, в дальнейшее согласование войдут {people}.",
+        }
+        return mapping.get(code, "")
+
     def _compose_improvement_case_context(self, specificity: dict[str, Any]) -> str:
-        workflow = str(specificity.get("workflow_label") or "текущему процессу")
+        workflow = self._format_case_scope(str(specificity.get("workflow_label") or "текущему процессу"))
         impact = str(specificity.get("business_impact") or "сроки и качество результата")
         idea = str(specificity.get("idea_label") or "")
         current_state = str(specificity.get("current_state") or self._describe_process_gap(specificity))
@@ -3027,9 +3054,11 @@ class DeepSeekClient:
         return sentence
 
     def _compose_idea_evaluation_case_context(self, specificity: dict[str, Any]) -> str:
-        workflow = str(specificity.get("workflow_label") or "текущему процессу")
+        workflow = self._format_case_scope(str(specificity.get("workflow_label") or "текущему процессу"))
         impact = str(specificity.get("business_impact") or "сроки и качество результата")
-        idea = str(specificity.get("idea_label") or f"улучшение процесса «{workflow}»")
+        raw_workflow = str(specificity.get("workflow_label") or "текущему процессу")
+        idea = str(specificity.get("idea_label") or f"улучшение процесса «{raw_workflow}»")
+        idea_title = self._format_case_scope(idea)
         current_state = str(specificity.get("current_state") or self._describe_process_gap(specificity))
         variant = self._diversity_variant(
             case_type_code="F10",
@@ -3055,7 +3084,7 @@ class DeepSeekClient:
         ).lower()
         if any(marker in horeca_source for marker in horeca_markers):
             return (
-                "Появилась идея изменить порядок работы смены по спорным ситуациям с гостями, "
+                f"Появилась идея {idea_title}: изменить порядок работы смены по спорным ситуациям с гостями, "
                 "чтобы замечания по заказу и следующий шаг фиксировались до закрытия вопроса. "
                 f"Сейчас ситуация выглядит так: {current_state_inline} "
                 f"Это может улучшить {impact}, но пока неясно, не замедлит ли это работу бара в пиковые часы. "
@@ -3064,18 +3093,16 @@ class DeepSeekClient:
                 f"{idea_description}"
             )
         if variant == 1:
-            opening = f"Появилась идея изменить порядок работы по процессу «{workflow}», чтобы убрать повторные возвраты на одном и том же участке."
+            opening = f"Появилась идея {idea_title}. Суть идеи такая: {idea_description}"
         elif variant == 2:
-            opening = f"Команда обсуждает изменение в процессе «{workflow}», которое должно снизить количество лишних согласований и возвратов."
+            opening = f"Команда обсуждает идею {idea_title} в процессе «{workflow}». Суть идеи такая: {idea_description}"
         else:
-            opening = f"Появилась идея изменить порядок работы по процессу «{workflow}», чтобы сократить возвраты и повторные согласования."
+            opening = f"Появилась идея {idea_title}. Суть идеи такая: {idea_description}"
         return (
             f"{opening} "
             f"{current_state} "
             f"Потенциальный эффект понятен, потому что это может улучшить {impact}, но пока неясно, стоит ли запускать изменение сразу и как сделать это безопасно. "
             + (f" Основная проблема сейчас такая: {bottleneck}." if bottleneck else "")
-            + " "
-            f"{idea_description}"
         )
 
     def _compose_control_risk_case_context(self, specificity: dict[str, Any]) -> str:
@@ -3736,18 +3763,21 @@ class DeepSeekClient:
         resource_profile = str(data.get("resource_profile") or "").strip()
         additions: list[str] = []
         if type_code in {"F05", "F08"}:
-            if named_stakeholders and named_stakeholders not in current:
-                additions.append(f"В этом контуре уже вовлечены {named_stakeholders}.")
+            sentence = self._stakeholder_context_sentence(type_code, named_stakeholders)
+            if sentence and named_stakeholders not in current:
+                additions.append(sentence)
             if resource_profile and resource_profile not in current:
                 additions.append(f"На этом участке доступен такой состав: {resource_profile}.")
         elif type_code in {"F09", "F10"}:
             if shift_name and shift_name.lower() not in current.lower():
-                additions.append(f"Это касается {shift_name}.")
-            if named_stakeholders and named_stakeholders not in current:
-                additions.append(f"На этот участок уже смотрят {named_stakeholders}.")
+                additions.append(f"Это касается {self._format_case_scope(shift_name)}.")
+            sentence = self._stakeholder_context_sentence(type_code, named_stakeholders)
+            if sentence and named_stakeholders not in current:
+                additions.append(sentence)
         elif type_code in {"F03", "F11", "F12"}:
-            if named_stakeholders and named_stakeholders not in current:
-                additions.append(f"По ситуации уже вовлечены {named_stakeholders}.")
+            sentence = self._stakeholder_context_sentence(type_code, named_stakeholders)
+            if sentence and named_stakeholders not in current:
+                additions.append(sentence)
         if type_code in {"F05", "F08", "F09"} and work_items and work_items not in current:
             additions.append(f"Сейчас в фокусе такие задачи: {work_items}.")
         for addition in additions:
@@ -3859,16 +3889,18 @@ class DeepSeekClient:
             shift_name_on = re.sub(r"^дневная\s+смена\b", "дневной смене", shift_name_on, flags=re.IGNORECASE)
             shift_name_on = re.sub(r"^аналитическая\s+смена\b", "аналитической смене", shift_name_on, flags=re.IGNORECASE)
             shift_name_on = re.sub(r"^смена\b", "смене", shift_name_on, flags=re.IGNORECASE)
+        shift_name_bold = self._format_case_scope(shift_name) if shift_name else ""
+        shift_name_on_bold = self._format_case_scope(shift_name_on) if shift_name_on else ""
         if metric_delta and metric_delta[-1] not in ".!?":
             metric_delta += "."
         if any(word in source for word in ("бармен", "бар", "ресторан", "общепит", "коктейл", "гость", "заказ")):
             return (
-                f"Сейчас спорные ситуации по заказам проходят через бармена, администратора зала и журнал смены {shift_name}, "
+                f"Сейчас спорные ситуации по заказам проходят через бармена, администратора зала и журнал смены {shift_name_bold or shift_name}, "
                 f"но замечания гостя, принятое решение и следующий шаг фиксируются не всегда в одном месте и не в один момент. {metric_delta}"
             )
         if any(word in source for word in ("судоход", "моряк", "судно", "корабл", "вахт", "экипаж", "рейс")):
             return (
-                f"Сейчас ключевые действия по вахте и передаче следующего шага фиксируются через судовой журнал и устную передачу смены {shift_name}, "
+                f"Сейчас ключевые действия по вахте и передаче следующего шага фиксируются через судовой журнал и устную передачу смены {shift_name_bold or shift_name}, "
                 f"но подтверждение результата и следующего маневра иногда остается неполным. {metric_delta}"
             )
         if any(word in source for word in ("ядер", "энергет", "инженер", "конструкт", "чертеж", "документац")):
@@ -3887,7 +3919,7 @@ class DeepSeekClient:
                 f"но на одном из шагов теряется информация о фактическом результате или следующем действии. {metric_delta}"
             )
         return (
-            f"Сейчас работа идет по процессу «{scenario.get('workflow_label') or 'текущему процессу'}» на участке {shift_name_on or 'текущей смены'}, "
+            f"Сейчас работа идет по процессу «{scenario.get('workflow_label') or 'текущему процессу'}» на участке {shift_name_on_bold or 'текущей смены'}, "
             f"но на одном из этапов команда теряет подтверждение результата, следующего шага или ответственного. {metric_delta}"
         )
 
@@ -5218,9 +5250,13 @@ class DeepSeekClient:
         if type_code == "F08" and work_items and work_items not in current:
             extra = f"{extra} Конкурируют между собой именно такие задачи: {work_items}."
         if type_code in {"F09", "F10"} and named_stakeholders and named_stakeholders not in current:
-            extra = f"{extra} На этот участок уже смотрят {named_stakeholders}."
+            sentence = self._stakeholder_context_sentence(type_code, named_stakeholders)
+            if sentence:
+                extra = f"{extra} {sentence}"
         if type_code in {"F03", "F12"} and named_stakeholders and named_stakeholders not in current:
-            extra = f"{extra} В разговорный контур здесь вовлечены {named_stakeholders}."
+            sentence = self._stakeholder_context_sentence(type_code, named_stakeholders)
+            if sentence:
+                extra = f"{extra} {sentence}"
             if conversation_target and conversation_target not in current:
                 extra = f"{extra} Разговор предстоит с коллегой — {conversation_target}."
         if not extra or extra in current:
@@ -5508,6 +5544,19 @@ class DeepSeekClient:
             flags=re.IGNORECASE,
         )
         result = re.sub(r"\bчерез\s+в\s+комментариях\b", "в комментариях", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bограничения\s+закрытию\s+заявок\b", "ограничения по закрытию заявок", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bесть\s+закрытию\s+заявок\b", "есть ограничения по закрытию заявок", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bошибок в процессе обслуживание гостей и работа бара\b", "ошибок в процессе обслуживания гостей и работы бара", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bможет привести к обслуживание гостей и работа бара\b", "может привести к сбоям в обслуживании гостей и работе бара", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bна\s+показателях\b", "на показатели", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bдополнительные\s+срыва\s+сроков\b", "дополнительным срывам сроков", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bЭто\s+касается\s+вечерняя\s+смена\b", "Это касается вечерней смены", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bЭто\s+касается\s+линия\b", "Это касается линии", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bв\s+процессе\s+поддержка\s+рабочих\s+мест\s+и\s+заявок\s+пользователей\b", "в процессе поддержки рабочих мест и заявок пользователей", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bможет\s+привести\s+к\s+поддержка\s+рабочих\s+мест\s+и\s+обработка\s+заявок\s+пользователей\b", "может привести к сбоям в поддержке рабочих мест и обработке заявок пользователей", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bВ этом контуре уже вовлечены\b", "В распределении работы уже участвуют", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bПо ситуации уже вовлечены\b", "В согласовании по этой ситуации уже участвуют", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bНа этот участок уже смотрят\b", "На результаты этого участка уже ориентируются", result, flags=re.IGNORECASE)
         result = re.sub(r"\bо\s+пользователях/клиентах\s+пользователь\b", "о пользователях и клиентах", result, flags=re.IGNORECASE)
         result = re.sub(r"\bпользователях/клиентах\s+пользователь\b", "пользователях и клиентах", result, flags=re.IGNORECASE)
         result = re.sub(r"\bв системе видно,\s+что статус обращения уже изменён\b", "В системе видно, что статус обращения уже изменён", result, flags=re.IGNORECASE)
@@ -5587,6 +5636,10 @@ class DeepSeekClient:
             result,
             flags=re.IGNORECASE,
         )
+        result = re.sub(r"([^.]{170,}?),\s+но\s+", r"\1. Но ", result)
+        result = re.sub(r"([^.]{170,}?),\s+а\s+", r"\1. А ", result)
+        result = re.sub(r"([^.]{170,}?),\s+и\s+при\s+этом\s+", r"\1. При этом ", result, flags=re.IGNORECASE)
+        result = re.sub(r"\bПри этом цена ошибки уже заметна, но\.", "При этом цена ошибки уже заметна.", result, flags=re.IGNORECASE)
         result = re.sub(r"\.\s*,", ".", result)
         result = re.sub(r"\.\s+\.", ".", result)
         result = re.sub(r"\s{2,}", " ", result).strip()
@@ -6430,16 +6483,16 @@ class DeepSeekClient:
         source = f"{case_title} {text}".lower()
         if any(word in source for word in ("бармен", "бар", "ресторан", "общепит", "коктейл", "гость", "меню", "заказ", "pos-систем")):
             return (
-                "Появилась идея изменить порядок фиксации замечаний по гостям и передачи информации между баром и администратором смены. "
+                "Появилась идея «единая фиксация замечаний по гостю»: изменить порядок фиксации замечаний по гостям и передачи информации между баром и администратором смены. "
                 "Это может сократить число повторных разборов и спорных закрытий, но есть риск, что в пиковые часы работа бара станет медленнее."
             )
         if any(word in source for word in ("jira", "тз", "требован", "разработ")):
             return (
-                "Появилась идея изменить порядок подготовки и согласования требований перед передачей задач в разработку. "
+                "Появилась идея «единый пакет требований перед передачей в разработку»: изменить порядок подготовки и согласования требований перед передачей задач в разработку. "
                 "Это может сократить количество возвратов, но есть риск замедлить работу команды на старте и увеличить нагрузку на аналитиков."
             )
         return (
-            "Появилась идея улучшения процесса, которая может дать заметный эффект, но пока неясно, стоит ли запускать ее сразу и как это сделать безопасно. "
+            "Появилась идея «улучшение процесса»: это изменение может дать заметный эффект, но пока неясно, стоит ли запускать его сразу и как это сделать безопасно. "
             "Нужно оценить идею и выбрать разумный режим внедрения."
         )
 

@@ -3584,7 +3584,7 @@ textarea {
     display: grid;
     grid-template-columns:
         minmax(220px, 1.3fr) minmax(220px, 1fr)
-        130px 170px 110px 110px;
+        130px 170px 110px 110px 132px;
     gap: 18px;
     align-items: center;
 }
@@ -3673,6 +3673,15 @@ textarea {
 .admin-report-group span,
 .admin-report-date {
     color: var(--text-muted);
+}
+
+.admin-report-download-action {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.admin-report-download-button {
+    white-space: nowrap;
 }
 
 .admin-status-pill {
@@ -5427,6 +5436,22 @@ textarea {
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
+}
+
+.admin-detail-case-dialogue-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.admin-detail-case-dialogue-caption {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 .admin-detail-case-section,

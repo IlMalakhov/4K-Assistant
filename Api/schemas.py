@@ -370,6 +370,16 @@ class AdminReportCaseItem(BaseModel):
     skill_results: list[AdminReportCaseSkillResult] = []
 
 
+class AdminReportProfileSummary(BaseModel):
+    position: str | None = None
+    duties: str | None = None
+    domain: str | None = None
+    processes: list[str] = []
+    tasks: list[str] = []
+    stakeholders: list[str] = []
+    constraints: list[str] = []
+
+
 class AdminReportDetailResponse(BaseModel):
     session_id: int
     user_id: int
@@ -390,6 +400,7 @@ class AdminReportDetailResponse(BaseModel):
     strengths: list[str]
     growth_areas: list[str]
     quotes: list[str]
+    profile_summary: AdminReportProfileSummary | None = None
     case_items: list[AdminReportCaseItem] = []
 
 

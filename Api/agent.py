@@ -125,6 +125,13 @@ USER_SELECT_SQL = """
 """
 
 
+def _is_assessment_allowed_for_user(user: UserResponse | None) -> bool:
+    if user is None:
+        return False
+    normalized_role = str(user.job_description or "").strip().lower()
+    return normalized_role != "администратор"
+
+
 class ConversationMode(StrEnum):
     EXISTING_USER = "existing_user"
     NEW_USER = "new_user"
@@ -1406,6 +1413,8 @@ class InterviewerAgent:
         )
 
     def start_case_interview(self, *, user: UserResponse, progress_operation_id: str | None = None) -> AssessmentStartResponse:
+        if not _is_assessment_allowed_for_user(user):
+            raise ValueError("Для роли «Администратор» ассессмент недоступен.")
         plan = assessment_service.ensure_assessment_session(user, progress_operation_id=progress_operation_id)
         if plan is None:
             raise ValueError("Для пользователя не осталось непройденных кейсов или роль еще не определена.")
