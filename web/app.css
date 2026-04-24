@@ -3731,89 +3731,104 @@ textarea {
     display: grid;
 }
 
-.admin-detail-radar-card {
-    min-height: 300px;
+.admin-detail-chart-stack {
+    display: grid;
+    gap: 24px;
+}
+
+.admin-detail-competency-visual,
+.admin-detail-skill-radar-section {
+    display: grid;
+    gap: 16px;
+}
+
+.admin-detail-competency-radar-head,
+.admin-detail-skill-radar-head {
+    display: grid;
+    gap: 8px;
+}
+
+.admin-detail-competency-radar-head strong,
+.admin-detail-skill-radar-head strong {
+    color: var(--text-main);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 24px;
+}
+
+.admin-detail-competency-radar-head p,
+.admin-detail-skill-radar-head p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 20px;
+}
+
+.admin-detail-competency-radar-card,
+.admin-detail-skills-radar-card {
+    min-height: 420px;
     border-radius: 24px;
     background: var(--accent-surface);
     padding: 20px;
 }
 
-.admin-detail-radar-stage {
+.admin-detail-competency-radar-frame,
+.admin-detail-skills-radar-frame {
     position: relative;
-    min-height: 260px;
+    min-height: 380px;
 }
 
-.admin-detail-radar-figure {
+.admin-detail-competency-radar-frame canvas,
+.admin-detail-skills-radar-frame canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.admin-detail-skills-radar-fallback {
     position: absolute;
-    inset: 32px 72px 32px 72px;
+    inset: 0;
     display: grid;
     place-items: center;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 20px;
 }
 
-.admin-detail-radar-shape {
-    width: 180px;
-    height: 180px;
-    transform: rotate(45deg);
-    border-radius: 28px;
-    background: rgba(70, 72, 212, 0.12);
-    border: 1px solid rgba(70, 72, 212, 0.12);
+.admin-detail-skill-radar-list {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    text-align: left;
 }
 
-.admin-detail-radar-dot {
-    position: absolute;
-    width: 12px;
-    height: 12px;
-    border-radius: 999px;
-    background: var(--accent);
+.admin-detail-skill-radar-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.76);
 }
 
-.admin-detail-radar-dot.top {
-    top: 22px;
-}
-
-.admin-detail-radar-dot.right {
-    right: 52px;
-}
-
-.admin-detail-radar-dot.bottom {
-    bottom: 22px;
-}
-
-.admin-detail-radar-dot.left {
-    left: 52px;
-}
-
-.admin-detail-radar-label {
-    position: absolute;
+.admin-detail-skill-radar-item span {
+    color: var(--text-body);
     font-size: 13px;
-    font-weight: 700;
-    color: var(--text-main);
+    line-height: 18px;
 }
 
-.admin-detail-radar-label.top {
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
+.admin-detail-skill-radar-item strong {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 20px;
+    white-space: nowrap;
 }
 
-.admin-detail-radar-label.right {
-    top: 50%;
-    right: 0;
-    transform: translateY(-50%);
-    text-align: right;
-}
-
-.admin-detail-radar-label.bottom {
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-}
-
-.admin-detail-radar-label.left {
-    top: 50%;
-    left: 0;
-    transform: translateY(-50%);
-}
 
 .admin-detail-card-icon {
     width: 34px;
@@ -3982,16 +3997,14 @@ textarea {
         inset: 48px 48px 48px 48px;
     }
 
-    .admin-detail-radar-label.right,
-    .admin-detail-radar-label.left {
-        position: static;
-        transform: none;
-        text-align: center;
+    .admin-detail-competency-radar-card,
+    .admin-detail-skills-radar-card {
+        min-height: 360px;
     }
 
-    .admin-detail-radar-label.top,
-    .admin-detail-radar-label.bottom {
-        max-width: 180px;
+    .admin-detail-competency-radar-frame,
+    .admin-detail-skills-radar-frame {
+        min-height: 320px;
     }
 
     .onboarding-visual {
@@ -4867,6 +4880,10 @@ textarea {
 
     .report-insight-card {
         grid-area: insight;
+    }
+
+    .admin-detail-skill-radar-list {
+        grid-template-columns: 1fr;
     }
 }
 

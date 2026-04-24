@@ -9,6 +9,8 @@ const state = {
   adminReports: null,
   adminReportDetail: null,
   adminReportDetailSessionId: null,
+  adminReportDetailSkillAssessments: [],
+  adminReportDetailSkillAssessmentsLoading: false,
   adminReportsSearch: '',
   adminReportsPage: 1,
   adminPeriodKey: '30d',
@@ -179,6 +181,9 @@ const onboardingSteps = [
   },
 ];
 
+let adminCompetencyRadarChart = null;
+let adminSkillRadarChart = null;
+
 const authPanel = document.getElementById('auth-panel');
 const onboardingPanel = document.getElementById('onboarding-panel');
 const dashboardPanel = document.getElementById('dashboard-panel');
@@ -264,6 +269,10 @@ const adminReportDetailGroup = document.getElementById('admin-report-detail-grou
 const adminReportDetailStatus = document.getElementById('admin-report-detail-status');
 const adminReportDetailStatusBadge = document.getElementById('admin-report-detail-status-badge');
 const adminReportDetailCompetencyBars = document.getElementById('admin-report-detail-competency-bars');
+const adminReportDetailCompetencyChart = document.getElementById('admin-report-detail-competency-chart');
+const adminReportDetailCompetencyFallback = document.getElementById('admin-report-detail-competency-fallback');
+const adminReportDetailSkillsRadarChart = document.getElementById('admin-report-detail-skills-radar-chart');
+const adminReportDetailSkillsRadarFallback = document.getElementById('admin-report-detail-skills-radar-fallback');
 const adminReportDetailMbtiType = document.getElementById('admin-report-detail-mbti-type');
 const adminReportDetailMbtiSummary = document.getElementById('admin-report-detail-mbti-summary');
 const adminReportDetailMbtiAxes = document.getElementById('admin-report-detail-mbti-axes');
@@ -959,6 +968,8 @@ const resetChat = () => {
   state.adminReports = null;
   state.adminReportDetail = null;
   state.adminReportDetailSessionId = null;
+  state.adminReportDetailSkillAssessments = [];
+  state.adminReportDetailSkillAssessmentsLoading = false;
   state.adminReportsSearch = '';
   state.adminReportsPage = 1;
   state.pendingRoleOptions = [];
@@ -978,6 +989,8 @@ const resetChat = () => {
   state.processingStepIndex = 0;
   state.processingAgents = buildProcessingAgentsState();
   state.assessmentSessionId = null;
+  destroyAdminCompetencyRadarChart();
+  destroyAdminSkillRadarChart();
   state.skillAssessments = [];
   state.reportCompetencyTab = 'Коммуникация';
   state.processingAnimationDone = false;
@@ -1287,7 +1300,28 @@ const getAdminStatusBadgeLabel = (status) => {
   return 'Черновик';
 };
 
+const destroyAdminCompetencyRadarChart = () => {
+  if (adminCompetencyRadarChart) {
+    adminCompetencyRadarChart.destroy();
+    adminCompetencyRadarChart = null;
+  }
+};
+
+const buildAdminCompetencyFallbackMarkup = (items) =>
+  '<div class="admin-detail-skill-radar-list">' +
+    items.map((item) => (
+      '<div class="admin-detail-skill-radar-item">' +
+        '<span>' + item.name + '</span>' +
+        '<strong>' + (Number(item.value) || 0) + '%</strong>' +
+      '</div>'
+    )).join('') +
+  '</div>';
+
 const renderAdminCompetencyVisual = (items) => {
+  if (!adminReportDetailCompetencyChart || !adminReportDetailCompetencyFallback) {
+    return;
+  }
+
   const values = {};
   competencyOrder.forEach((name) => {
     values[name] = 0;
@@ -1298,22 +1332,296 @@ const renderAdminCompetencyVisual = (items) => {
     }
   });
 
-  adminReportDetailCompetencyBars.innerHTML =
-    '<div class="admin-detail-radar-card">' +
-      '<div class="admin-detail-radar-stage">' +
-        '<div class="admin-detail-radar-figure">' +
-          '<div class="admin-detail-radar-shape"></div>' +
-          '<span class="admin-detail-radar-dot top"></span>' +
-          '<span class="admin-detail-radar-dot right"></span>' +
-          '<span class="admin-detail-radar-dot bottom"></span>' +
-          '<span class="admin-detail-radar-dot left"></span>' +
-        '</div>' +
-        '<div class="admin-detail-radar-label top">Креативность (' + values['Креативность'] + '%)</div>' +
-        '<div class="admin-detail-radar-label right">Кооперация (' + values['Командная работа'] + '%)</div>' +
-        '<div class="admin-detail-radar-label bottom">Крит. мышление (' + values['Критическое мышление'] + '%)</div>' +
-        '<div class="admin-detail-radar-label left">Коммуникация (' + values['Коммуникация'] + '%)</div>' +
-      '</div>' +
-    '</div>';
+  const competencyItems = [
+    { name: 'Коммуникация', short: 'Коммуникация', value: values['Коммуникация'] },
+    { name: 'Командная работа', short: 'Кооперация', value: values['Командная работа'] },
+    { name: 'Креативность', short: 'Креативность', value: values['Креативность'] },
+    { name: 'Критическое мышление', short: 'Крит. мышление', value: values['Критическое мышление'] },
+  ];
+
+  destroyAdminCompetencyRadarChart();
+
+  adminReportDetailCompetencyChart.classList.add('hidden');
+  adminReportDetailCompetencyFallback.classList.add('hidden');
+  adminReportDetailCompetencyFallback.innerHTML = '';
+
+  if (typeof window.Chart !== 'function') {
+    adminReportDetailCompetencyFallback.innerHTML = buildAdminCompetencyFallbackMarkup(competencyItems);
+    adminReportDetailCompetencyFallback.classList.remove('hidden');
+    return;
+  }
+
+  const context = adminReportDetailCompetencyChart.getContext('2d');
+  if (!context) {
+    adminReportDetailCompetencyFallback.innerHTML = buildAdminCompetencyFallbackMarkup(competencyItems);
+    adminReportDetailCompetencyFallback.classList.remove('hidden');
+    return;
+  }
+
+  adminReportDetailCompetencyChart.classList.remove('hidden');
+
+  adminCompetencyRadarChart = new window.Chart(context, {
+    type: 'radar',
+    data: {
+      labels: competencyItems.map((item) => formatRadarLabel(item.short)),
+      datasets: [
+        {
+          label: 'Оценка компетенции',
+          data: competencyItems.map((item) => item.value),
+          fill: true,
+          borderColor: '#4648d4',
+          backgroundColor: 'rgba(70, 72, 212, 0.16)',
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 5,
+          pointBackgroundColor: '#4648d4',
+          pointBorderColor: '#4648d4',
+          pointBorderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: {
+          display: false,
+        },
+        tooltip: {
+          displayColors: false,
+          backgroundColor: '#191c1e',
+          titleFont: {
+            family: 'Inter',
+            size: 13,
+            weight: '600',
+          },
+          bodyFont: {
+            family: 'Inter',
+            size: 12,
+            weight: '500',
+          },
+          callbacks: {
+            title(items) {
+              const item = competencyItems[items[0]?.dataIndex ?? 0];
+              return item?.name || 'Компетенция';
+            },
+            label(context) {
+              return context.formattedValue + '%';
+            },
+          },
+        },
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          min: 0,
+          max: 100,
+          ticks: {
+            stepSize: 25,
+            display: false,
+          },
+          grid: {
+            color: 'rgba(100, 116, 139, 0.16)',
+          },
+          angleLines: {
+            color: 'rgba(100, 116, 139, 0.16)',
+          },
+          pointLabels: {
+            color: '#64748b',
+            font: {
+              family: 'Inter',
+              size: 12,
+              weight: '500',
+            },
+            padding: 6,
+          },
+        },
+      },
+      elements: {
+        line: {
+          tension: 0,
+        },
+      },
+    },
+  });
+};
+
+const destroyAdminSkillRadarChart = () => {
+  if (adminSkillRadarChart) {
+    adminSkillRadarChart.destroy();
+    adminSkillRadarChart = null;
+  }
+};
+
+const formatRadarLabel = (text) => {
+  const rawText = String(text || 'Без названия').trim();
+  const words = rawText.split(/\s+/).filter(Boolean);
+  if (words.length < 2) {
+    return rawText;
+  }
+
+  const lines = [];
+  let currentLine = '';
+
+  words.forEach((word) => {
+    if (!currentLine) {
+      currentLine = word;
+      return;
+    }
+    if ((currentLine + ' ' + word).length <= 16 || lines.length >= 2) {
+      currentLine += ' ' + word;
+      return;
+    }
+    lines.push(currentLine);
+    currentLine = word;
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.length > 1 ? lines : [rawText];
+};
+
+const buildAdminSkillRadarFallbackMarkup = (skills) =>
+  '<div class="admin-detail-skill-radar-list">' +
+    skills.map((skill) => (
+      '<div class="admin-detail-skill-radar-item">' +
+        '<span>' + (skill.skill_name || 'Навык') + '</span>' +
+        '<strong>' + getLevelPercent(skill.assessed_level_code) + '%</strong>' +
+      '</div>'
+    )).join('') +
+  '</div>';
+
+const renderAdminSkillRadar = (skills = []) => {
+  if (!adminReportDetailSkillsRadarChart || !adminReportDetailSkillsRadarFallback) {
+    return;
+  }
+
+  destroyAdminSkillRadarChart();
+
+  adminReportDetailSkillsRadarChart.classList.add('hidden');
+  adminReportDetailSkillsRadarFallback.classList.add('hidden');
+  adminReportDetailSkillsRadarFallback.innerHTML = '';
+
+  if (state.adminReportDetailSkillAssessmentsLoading) {
+    adminReportDetailSkillsRadarFallback.textContent = 'Загружаем распределение по навыкам...';
+    adminReportDetailSkillsRadarFallback.classList.remove('hidden');
+    return;
+  }
+
+  if (!skills.length) {
+    adminReportDetailSkillsRadarFallback.textContent = 'Для этой записи пока нет оценок по отдельным навыкам.';
+    adminReportDetailSkillsRadarFallback.classList.remove('hidden');
+    return;
+  }
+
+  if (typeof window.Chart !== 'function') {
+    adminReportDetailSkillsRadarFallback.innerHTML = buildAdminSkillRadarFallbackMarkup(skills);
+    adminReportDetailSkillsRadarFallback.classList.remove('hidden');
+    return;
+  }
+
+  const context = adminReportDetailSkillsRadarChart.getContext('2d');
+  if (!context) {
+    adminReportDetailSkillsRadarFallback.innerHTML = buildAdminSkillRadarFallbackMarkup(skills);
+    adminReportDetailSkillsRadarFallback.classList.remove('hidden');
+    return;
+  }
+
+  adminReportDetailSkillsRadarChart.classList.remove('hidden');
+
+  adminSkillRadarChart = new window.Chart(context, {
+    type: 'radar',
+    data: {
+      labels: skills.map((skill) => formatRadarLabel(skill.skill_name)),
+      datasets: [
+        {
+          label: 'Оценка навыка',
+          data: skills.map((skill) => getLevelPercent(skill.assessed_level_code)),
+          fill: true,
+          borderColor: '#4648d4',
+          backgroundColor: 'rgba(70, 72, 212, 0.16)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointHoverRadius: 4,
+          pointBackgroundColor: '#4648d4',
+          pointBorderColor: '#4648d4',
+          pointBorderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: {
+          display: false,
+        },
+        tooltip: {
+          displayColors: false,
+          backgroundColor: '#191c1e',
+          titleFont: {
+            family: 'Inter',
+            size: 13,
+            weight: '600',
+          },
+          bodyFont: {
+            family: 'Inter',
+            size: 12,
+            weight: '500',
+          },
+          callbacks: {
+            title(items) {
+              const skill = skills[items[0]?.dataIndex ?? 0];
+              return skill?.skill_name || 'Навык';
+            },
+            label(context) {
+              const skill = skills[context.dataIndex];
+              return (skill?.assessed_level_name || 'Нет уровня') + ' - ' + context.formattedValue + '%';
+            },
+            afterLabel(context) {
+              const skill = skills[context.dataIndex];
+              return skill?.competency_name || '';
+            },
+          },
+        },
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          min: 0,
+          max: 100,
+          ticks: {
+            stepSize: 25,
+            display: false,
+          },
+          grid: {
+            color: 'rgba(100, 116, 139, 0.16)',
+          },
+          angleLines: {
+            color: 'rgba(100, 116, 139, 0.16)',
+          },
+          pointLabels: {
+            color: '#64748b',
+            font: {
+              family: 'Inter',
+              size: 10,
+              weight: '500',
+            },
+            padding: 4,
+          },
+        },
+      },
+      elements: {
+        line: {
+          tension: 0,
+        },
+      },
+    },
+  });
 };
 
 const getFilteredAdminReports = () => {
@@ -1463,6 +1771,14 @@ const loadAdminReportDetail = async (sessionId) => {
   persistAssessmentContext();
 };
 
+const loadAdminReportDetailSkillAssessments = async (userId, sessionId) => {
+  const response = await fetch('/users/' + userId + '/assessment/' + sessionId + '/skill-assessments', {
+    credentials: 'same-origin',
+  });
+  const data = await readApiResponse(response, 'Не удалось загрузить оценки по навыкам.');
+  state.adminReportDetailSkillAssessments = Array.isArray(data) ? data : [];
+};
+
 const renderAdminReportDetail = () => {
   const detail = state.adminReportDetail;
   if (!detail) {
@@ -1478,6 +1794,7 @@ const renderAdminReportDetail = () => {
     adminReportDetailMbtiType.textContent = 'Нет данных';
     adminReportDetailMbtiSummary.textContent = 'Данные по отчету пока недоступны.';
     renderAdminCompetencyVisual([]);
+    renderAdminSkillRadar([]);
     adminReportDetailMbtiAxes.innerHTML = '';
     adminReportDetailStrengths.innerHTML = '<li>Данные будут доступны после появления результатов оценки.</li>';
     adminReportDetailGrowth.innerHTML = '<li>Зоны роста будут определены после накопления результатов.</li>';
@@ -1515,6 +1832,7 @@ const renderAdminReportDetail = () => {
   adminReportDetailMbtiSummary.textContent = detail.mbti_summary || 'Данные MBTI пока недоступны для этой записи.';
 
   renderAdminCompetencyVisual(competencyItems);
+  renderAdminSkillRadar(state.adminReportDetailSkillAssessments);
 
   adminReportDetailMbtiAxes.innerHTML = '';
   mbtiAxes.forEach((axis) => {
@@ -1583,6 +1901,8 @@ const openAdminReports = async () => {
 const openAdminReportDetail = async (sessionId) => {
   setCurrentScreen('admin-report-detail');
   state.adminReportDetailSessionId = sessionId;
+  state.adminReportDetailSkillAssessments = [];
+  state.adminReportDetailSkillAssessmentsLoading = true;
   persistAssessmentContext();
   syncUrlState('admin-report-detail');
   hideAllPanels();
@@ -1596,7 +1916,15 @@ const openAdminReportDetail = async (sessionId) => {
   if (adminReportDetailStatusBadge) {
     adminReportDetailStatusBadge.textContent = 'Подготовка';
   }
-  adminReportDetailCompetencyBars.innerHTML = '<p class="report-empty-state">Загружаем сводные показатели...</p>';
+  destroyAdminCompetencyRadarChart();
+  if (adminReportDetailCompetencyChart) {
+    adminReportDetailCompetencyChart.classList.add('hidden');
+  }
+  if (adminReportDetailCompetencyFallback) {
+    adminReportDetailCompetencyFallback.textContent = 'Загружаем сводные показатели...';
+    adminReportDetailCompetencyFallback.classList.remove('hidden');
+  }
+  renderAdminSkillRadar([]);
   adminReportDetailMbtiAxes.innerHTML = '';
   adminReportDetailStrengths.innerHTML = '';
   adminReportDetailGrowth.innerHTML = '';
@@ -1604,12 +1932,36 @@ const openAdminReportDetail = async (sessionId) => {
   try {
     await loadAdminReportDetail(sessionId);
     renderAdminReportDetail();
+    if (state.adminReportDetail?.user_id && state.adminReportDetail?.session_id) {
+      try {
+        await loadAdminReportDetailSkillAssessments(state.adminReportDetail.user_id, state.adminReportDetail.session_id);
+      } catch (skillError) {
+        console.error('Failed to load admin skill assessments', skillError);
+        state.adminReportDetailSkillAssessments = [];
+      } finally {
+        state.adminReportDetailSkillAssessmentsLoading = false;
+      }
+      renderAdminSkillRadar(state.adminReportDetailSkillAssessments);
+    } else {
+      state.adminReportDetailSkillAssessmentsLoading = false;
+      renderAdminSkillRadar([]);
+    }
   } catch (error) {
     state.adminReportDetail = null;
+    state.adminReportDetailSkillAssessments = [];
+    state.adminReportDetailSkillAssessmentsLoading = false;
     adminReportDetailName.textContent = 'Не удалось загрузить отчет';
     adminReportDetailRole.textContent = error.message;
     adminReportDetailGroup.textContent = 'Попробуйте открыть запись позже';
-    adminReportDetailCompetencyBars.innerHTML = '<p class="report-empty-state">' + error.message + '</p>';
+    destroyAdminCompetencyRadarChart();
+    if (adminReportDetailCompetencyChart) {
+      adminReportDetailCompetencyChart.classList.add('hidden');
+    }
+    if (adminReportDetailCompetencyFallback) {
+      adminReportDetailCompetencyFallback.textContent = error.message;
+      adminReportDetailCompetencyFallback.classList.remove('hidden');
+    }
+    renderAdminSkillRadar([]);
     adminReportDetailMbtiSummary.textContent = 'Не удалось загрузить данные MBTI.';
     adminReportDetailStrengths.innerHTML = '<li>Данные временно недоступны.</li>';
     adminReportDetailGrowth.innerHTML = '<li>Данные временно недоступны.</li>';
