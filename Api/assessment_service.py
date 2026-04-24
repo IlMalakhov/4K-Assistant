@@ -487,15 +487,16 @@ class AssessmentService:
 
         open_case_rows = [row for row in case_rows if row["status"] not in {"answered", "assessed"}]
         if not open_case_rows:
+            finished_at = self._utc_now()
             connection.execute(
                 """
                 UPDATE user_sessions
                 SET status = 'completed',
-                    finished_at = COALESCE(finished_at, NOW()),
+                    finished_at = COALESCE(finished_at, %s),
                     notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\\n' END, %s::text)
                 WHERE id = %s
                 """,
-                ("repair: session auto-completed because no open cases remain", session_id),
+                (finished_at, "repair: session auto-completed because no open cases remain", session_id),
             )
             connection.commit()
             return None
@@ -550,15 +551,16 @@ class AssessmentService:
 
         repaired_plan = self._build_plan(connection, session_id, session_code)
         if repaired_plan.current_session_case_id is None:
+            finished_at = self._utc_now()
             connection.execute(
                 """
                 UPDATE user_sessions
                 SET status = 'completed',
-                    finished_at = COALESCE(finished_at, NOW()),
+                    finished_at = COALESCE(finished_at, %s),
                     notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\\n' END, %s::text)
                 WHERE id = %s
                 """,
-                ("repair: session finalized after integrity check", session_id),
+                (finished_at, "repair: session finalized after integrity check", session_id),
             )
             connection.commit()
             return None
@@ -586,15 +588,16 @@ class AssessmentService:
         return (session_id, session_code)
 
     def _archive_broken_session(self, *, connection, session_id: int, reason: str) -> None:
+        finished_at = self._utc_now()
         connection.execute(
             """
             UPDATE user_sessions
             SET status = 'failed',
-                finished_at = COALESCE(finished_at, NOW()),
+                finished_at = COALESCE(finished_at, %s),
                 notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE E'\\n' END, %s::text)
             WHERE id = %s
             """,
-            (reason, session_id),
+            (finished_at, reason, session_id),
         )
 
     def _upsert_session_case_prompt(
@@ -853,15 +856,16 @@ class AssessmentService:
                 and self._is_time_expired(plan.current_case_started_at, plan.current_case_time_limit_minutes)
                 and user_turn_count == 0
             ):
+                restarted_at = self._utc_now()
                 refreshed_row = connection.execute(
                     """
                     UPDATE session_cases
-                    SET started_at = NOW(),
+                    SET started_at = %s,
                         status = CASE WHEN status IN ('selected', 'sent_to_personalization', 'personalized') THEN 'shown' ELSE status END
                     WHERE id = %s
                     RETURNING started_at
                     """,
-                    (plan.current_session_case_id,),
+                    (restarted_at, plan.current_session_case_id),
                 ).fetchone()
                 connection.commit()
                 plan = AssessmentSessionPlan(
@@ -890,15 +894,16 @@ class AssessmentService:
             ).fetchone()
             if existing_message is not None:
                 if plan.current_case_started_at is None:
+                    started_at = self._utc_now()
                     started_row = connection.execute(
                         """
                         UPDATE session_cases
-                        SET started_at = COALESCE(started_at, NOW()),
+                        SET started_at = COALESCE(started_at, %s),
                             status = CASE WHEN status IN ('selected', 'sent_to_personalization', 'personalized') THEN 'shown' ELSE status END
                         WHERE id = %s
                         RETURNING started_at
                         """,
-                        (plan.current_session_case_id,),
+                        (started_at, plan.current_session_case_id),
                     ).fetchone()
                     connection.commit()
                     plan = AssessmentSessionPlan(
@@ -950,11 +955,11 @@ class AssessmentService:
                 """
                 UPDATE session_cases
                 SET status = 'shown',
-                    started_at = COALESCE(started_at, NOW())
+                    started_at = COALESCE(started_at, %s)
                 WHERE id = %s
                 RETURNING started_at
                 """,
-                (plan.current_session_case_id,),
+                (self._utc_now(), plan.current_session_case_id),
             ).fetchone()
             started_row = connection.execute(
                 """
@@ -1025,15 +1030,16 @@ class AssessmentService:
                 and case_meta["started_at"] is not None
                 and self._is_time_expired(case_meta["started_at"], case_meta["estimated_minutes"])
             ):
+                restarted_at = self._utc_now()
                 refreshed_row = connection.execute(
                     """
                     UPDATE session_cases
-                    SET started_at = NOW(),
+                    SET started_at = %s,
                         status = CASE WHEN status IN ('selected', 'sent_to_personalization', 'personalized') THEN 'shown' ELSE status END
                     WHERE id = %s
                     RETURNING started_at
                     """,
-                    (plan.current_session_case_id,),
+                    (restarted_at, plan.current_session_case_id),
                 ).fetchone()
                 case_meta = {
                     "started_at": refreshed_row["started_at"] if refreshed_row else case_meta["started_at"],
@@ -1233,14 +1239,15 @@ class AssessmentService:
         )
         next_plan = self._build_plan(connection, session_row["id"], session_code)
         if next_plan.current_session_case_id is None:
+            finished_at = self._utc_now()
             connection.execute(
                 """
                 UPDATE user_sessions
                 SET status = 'completed',
-                    finished_at = COALESCE(finished_at, NOW())
+                    finished_at = COALESCE(finished_at, %s)
                 WHERE id = %s
                 """,
-                (session_row["id"],),
+                (finished_at, session_row["id"]),
             )
             for agent in competency_assessment_agents:
                 agent.evaluate_session(
@@ -1291,11 +1298,11 @@ class AssessmentService:
             """
             UPDATE session_cases
             SET status = 'shown',
-                started_at = COALESCE(started_at, NOW())
+                started_at = COALESCE(started_at, %s)
             WHERE id = %s
             RETURNING started_at
             """,
-            (next_plan.current_session_case_id,),
+            (self._utc_now(), next_plan.current_session_case_id),
         ).fetchone()
         started_row = connection.execute(
             """
@@ -1369,7 +1376,7 @@ class AssessmentService:
             INSERT INTO session_case_results (
                 session_case_id, session_id, user_id, result_status, completion_score, evaluator_summary, passed_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, CASE WHEN %s = 'passed' THEN NOW() ELSE NULL END)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (session_case_id)
             DO UPDATE SET
                 result_status = EXCLUDED.result_status,
@@ -1384,7 +1391,7 @@ class AssessmentService:
                 result_status,
                 None,
                 None,
-                "passed" if result_status == "passed" else None,
+                completed_at if result_status == "passed" else None,
             ),
         )
 
@@ -1412,24 +1419,24 @@ class AssessmentService:
                 UPDATE session_skills
                 SET status = %s,
                     completed_case_count = completed_case_count + 1,
-                    covered_at = CASE WHEN %s = 'covered' THEN NOW() ELSE covered_at END
+                    covered_at = CASE WHEN %s = 'covered' THEN %s ELSE covered_at END
                 WHERE session_id = %s
                   AND skill_id = %s
                 """,
-                (skill_status, skill_status, session_id, row["skill_id"]),
+                (skill_status, skill_status, completed_at, session_id, row["skill_id"]),
             )
             connection.execute(
                 """
                 UPDATE user_skill_coverage
                 SET status = %s,
-                    covered_at = CASE WHEN %s = 'covered' THEN NOW() ELSE covered_at END
+                    covered_at = CASE WHEN %s = 'covered' THEN %s ELSE covered_at END
                 WHERE user_id = %s
                   AND skill_id = %s
                   AND source_case_registry_id = (
                       SELECT case_registry_id FROM session_cases WHERE id = %s
                   )
                 """,
-                (skill_status, skill_status, user_id, row["skill_id"], session_case_id),
+                (skill_status, skill_status, completed_at, user_id, row["skill_id"], session_case_id),
             )
 
     def _get_case_for_session_case(self, connection, session_case_id: int):
