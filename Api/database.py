@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 import psycopg
@@ -396,6 +397,137 @@ DEFAULT_CASE_TYPE_PERSONALIZATION_FIELDS = {
     "F11": ("job_title", "company_industry", "work_process", "stakeholder_group", "system_context"),
     "F12": ("job_title", "company_industry", "work_process", "stakeholder_group"),
 }
+
+DEFAULT_CASE_USER_TEXT_TEMPLATES = (
+    ("F01", "Жалоба / ожидания клиента", "complaint", "Сейчас от вас ждут первого ответа {recipient}.", "Как вы ответите?", True, "contextual", True, 1),
+    ("F02", "Неясный запрос", "clarification", "Вам нужно определить, как двигаться дальше.", "Как вы будете действовать?", False, "contextual", True, 1),
+    ("F03", "Сложный разговор", "conversation", "Вам нужно провести разговор с {counterparty}, чтобы {goal}.", "Как вы проведете этот разговор?", False, "contextual", True, 1),
+    ("F04", "Согласование со смежной функцией", "alignment", "Вам нужно договориться о следующем шаге и снять неопределенность.", "Как вы будете действовать?", False, "contextual", True, 1),
+    ("F05", "Координация и планирование", "planning", "Вам нужно организовать работу так, чтобы команда понимала приоритеты, ответственность и следующий шаг.", "Как вы будете действовать?", False, "contextual", True, 1),
+    ("F06", "Локальный разбор сбоя", "incident_review", "Вам нужно разобраться и определить, что делать дальше.", "Что вы будете делать?", False, "contextual", True, 1),
+    ("F07", "Выбор действия при неопределенности", "decision", "Нужно выбрать дальнейшее действие в условиях неполной ясности.", "Как вы будете действовать?", False, "contextual", True, 1),
+    ("F08", "Приоритизация", "prioritization", "Вам нужно определить, что делать в первую очередь.", "Что вы сделаете в первую очередь и почему?", False, "contextual", True, 1),
+    ("F09", "Идеи улучшения", "improvement", "Нужно предложить улучшение, которое поможет изменить текущий порядок работы.", "Что бы вы предложили?", False, "contextual", True, 1),
+    ("F10", "Оценка идеи и малое внедрение", "idea_evaluation", "Вам нужно решить, стоит ли запускать эту идею и как это сделать безопасно.", "Какое решение вы предложите?", False, "contextual", True, 1),
+    ("F11", "Риск перед следующим этапом", "control_risk", "Вам нужно решить, как действовать дальше до передачи работы на следующий этап.", "Как вы будете действовать?", False, "contextual", True, 1),
+    ("F12", "Развивающая беседа", "development_conversation", "Вам нужно провести развивающую беседу, чтобы обозначить проблему, договориться о следующем шаге и снизить риск повторения этого паттерна.", "Как вы проведете этот разговор?", False, "contextual", True, 1),
+    ("F13", "Управление изменениями и сопротивлением", "change_management", "Вам нужно выстроить внедрение изменений так, чтобы снизить сопротивление и сохранить управляемость процесса.", "Как вы будете действовать?", False, "contextual", True, 1),
+    ("F14", "Дизайн пилота / эксперимента", "experiment_design", "Вам нужно проверить идею быстро и безопасно, не раскатывая ее сразу на весь процесс.", "Какой пилот вы предложите?", False, "contextual", True, 1),
+    ("F15", "Рефрейминг проблемы и альтернативы", "reframing", "Вам нужно по-новому посмотреть на проблему и предложить несколько разных подходов к решению.", "Как бы вы переосмыслили проблему и какие альтернативы предложили?", False, "contextual", True, 1),
+)
+
+DEFAULT_DOMAIN_CATALOG = (
+    (
+        "engineering",
+        "engineering",
+        "Инженерно-конструкторский контур",
+        "Домен для инженерии, проектной документации, чертежей, КД и технического согласования.",
+        ["ядерная энергетика", "машиностроение", "проектирование", "конструкторские подразделения"],
+        ["чертежи", "КД", "PLM", "документация", "согласование", "инженер", "конструктор"],
+        True,
+        1,
+    ),
+    (
+        "beauty",
+        "beauty",
+        "Салонные и бьюти-услуги",
+        "Домен для салонов красоты, парикмахерских и услуг персонального сервиса.",
+        ["салон красоты", "парикмахерские услуги", "beauty"],
+        ["салон", "косметолог", "парикмахер", "укладка", "стрижка", "клиент"],
+        True,
+        1,
+    ),
+    (
+        "maritime",
+        "maritime",
+        "Судоходство и морские перевозки",
+        "Домен для судоходства, судовых операций, вахты, экипажа, порта и морской координации.",
+        ["судоходство", "морские перевозки", "флот", "портовые операции"],
+        ["судно", "корабль", "моряк", "вахта", "рейс", "экипаж", "порт", "мостик"],
+        True,
+        1,
+    ),
+    (
+        "horeca",
+        "horeca",
+        "Общественное питание и ресторанный сервис",
+        "Домен для баров, ресторанов, обслуживания гостей и сменных операций зала.",
+        ["общепит", "ресторанный бизнес", "барный бизнес", "кафе"],
+        ["бар", "бармен", "ресторан", "гость", "коктейль", "официант", "меню"],
+        True,
+        1,
+    ),
+    (
+        "food_production",
+        "food_production",
+        "Пищевое производство",
+        "Домен для производства пищевой продукции, партий, контроля качества и упаковки.",
+        ["пищевая промышленность", "производство продуктов", "пищевой завод"],
+        ["партия", "упаковка", "ОТК", "сырье", "технолог", "линия", "маркировка"],
+        True,
+        1,
+    ),
+    (
+        "it_support",
+        "it_support",
+        "ИТ-поддержка",
+        "Домен для поддержки рабочих мест, заявок, инцидентов и сервисных обращений.",
+        ["ИТ", "техническая поддержка", "helpdesk", "service desk"],
+        ["Service Desk", "Jira", "VPN", "инцидент", "заявка", "принтер", "картридж"],
+        True,
+        1,
+    ),
+    (
+        "business_analysis",
+        "business_analysis",
+        "Бизнес-анализ и постановка требований",
+        "Домен для аналитиков, подготовки ТЗ, требований и постановки задач в разработку.",
+        ["ИТ-аналитика", "бизнес-анализ", "продуктовая разработка"],
+        ["ТЗ", "требования", "постановка", "аналитик", "разработка", "критерии приемки"],
+        True,
+        1,
+    ),
+    (
+        "finance",
+        "finance",
+        "Финансовый контур",
+        "Домен для платежей, бюджетов, счетов и согласования финансовых операций.",
+        ["финансы", "бухгалтерия", "банковские услуги", "казначейство"],
+        ["платеж", "счет", "бюджет", "оплата", "банк", "финансовое согласование"],
+        True,
+        1,
+    ),
+    (
+        "hr",
+        "hr",
+        "HR и управление персоналом",
+        "Домен для подбора, адаптации, кадрового сопровождения и работы с сотрудниками.",
+        ["HR", "кадры", "подбор персонала", "рекрутинг"],
+        ["кандидат", "оффер", "адаптация", "персонал", "рекрутинг", "кадры"],
+        True,
+        1,
+    ),
+    (
+        "logistics",
+        "logistics",
+        "Логистика и транспорт",
+        "Домен для складских операций, маршрутов, доставки и координации перевозок.",
+        ["логистика", "склад", "доставка", "транспорт"],
+        ["отгрузка", "маршрут", "склад", "доставка", "TMS", "транспорт"],
+        True,
+        1,
+    ),
+    (
+        "generic",
+        "generic",
+        "Универсальный операционный контур",
+        "Запасной домен для профилей, которые пока нельзя уверенно отнести к специализированной отрасли.",
+        ["универсальный", "операционный контур"],
+        ["процесс", "задача", "следующий шаг", "согласование"],
+        True,
+        1,
+    ),
+)
 
 DEFAULT_CASE_QUALITY_CHECK_DEFINITIONS = (
     ("has_passport", "Паспорт типа кейса привязан"),
@@ -882,6 +1014,61 @@ def ensure_core_schema() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS case_user_text_templates (
+                id SERIAL PRIMARY KEY,
+                type_code TEXT NOT NULL UNIQUE REFERENCES case_type_passports(type_code) ON DELETE CASCADE,
+                template_name TEXT NOT NULL,
+                structure_mode TEXT NOT NULL,
+                action_prompt TEXT,
+                question_text TEXT NOT NULL,
+                allow_direct_speech BOOLEAN NOT NULL DEFAULT FALSE,
+                industry_context_mode TEXT NOT NULL DEFAULT 'contextual',
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS domain_catalog (
+                id SERIAL PRIMARY KEY,
+                domain_code TEXT NOT NULL UNIQUE,
+                family_name TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                description TEXT,
+                example_industries JSONB NOT NULL DEFAULT '[]'::jsonb,
+                typical_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS domain_catalog_candidates (
+                id SERIAL PRIMARY KEY,
+                raw_company_industry TEXT,
+                raw_position TEXT,
+                raw_duties TEXT,
+                suggested_domain_label TEXT NOT NULL,
+                suggested_family TEXT NOT NULL,
+                resolved_domain_code TEXT,
+                suggested_profile_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'reviewed', 'accepted', 'rejected')),
+                first_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                last_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                seen_count INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS case_quality_checks (
                 id SERIAL PRIMARY KEY,
                 cases_registry_id INTEGER NOT NULL REFERENCES cases_registry(id) ON DELETE CASCADE,
@@ -973,6 +1160,12 @@ def ensure_core_schema() -> None:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_type_difficulty_modifiers_passport ON case_type_difficulty_modifiers(case_type_passport_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_type_personalization_fields_passport ON case_type_personalization_fields(case_type_passport_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_text_personalization_values_case_text ON case_text_personalization_values(case_text_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_case_user_text_templates_type_code ON case_user_text_templates(type_code)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_domain_catalog_family_name ON domain_catalog(family_name)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_domain_catalog_is_active ON domain_catalog(is_active)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_domain_catalog_candidates_status ON domain_catalog_candidates(status)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_domain_catalog_candidates_family ON domain_catalog_candidates(suggested_family)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_domain_catalog_candidates_company_industry ON domain_catalog_candidates(raw_company_industry)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_quality_checks_case ON case_quality_checks(cases_registry_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_methodology_change_log_case ON case_methodology_change_log(case_registry_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_methodology_change_log_created_at ON case_methodology_change_log(created_at DESC)")
@@ -1576,6 +1769,100 @@ def ensure_core_schema() -> None:
                     """,
                     (passport_id, personalization_field_id, display_order),
                 )
+        for (
+            type_code,
+            template_name,
+            structure_mode,
+            action_prompt,
+            question_text,
+            allow_direct_speech,
+            industry_context_mode,
+            is_active,
+            version,
+        ) in DEFAULT_CASE_USER_TEXT_TEMPLATES:
+            connection.execute(
+                """
+                INSERT INTO case_user_text_templates (
+                    type_code,
+                    template_name,
+                    structure_mode,
+                    action_prompt,
+                    question_text,
+                    allow_direct_speech,
+                    industry_context_mode,
+                    is_active,
+                    version
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (type_code) DO UPDATE
+                SET
+                    template_name = EXCLUDED.template_name,
+                    structure_mode = EXCLUDED.structure_mode,
+                    action_prompt = EXCLUDED.action_prompt,
+                    question_text = EXCLUDED.question_text,
+                    allow_direct_speech = EXCLUDED.allow_direct_speech,
+                    industry_context_mode = EXCLUDED.industry_context_mode,
+                    is_active = EXCLUDED.is_active,
+                    version = GREATEST(case_user_text_templates.version, EXCLUDED.version),
+                    updated_at = NOW()
+                """,
+                (
+                    type_code,
+                    template_name,
+                    structure_mode,
+                    action_prompt,
+                    question_text,
+                    allow_direct_speech,
+                    industry_context_mode,
+                    is_active,
+                    version,
+                ),
+            )
+        for (
+            domain_code,
+            family_name,
+            display_name,
+            description,
+            example_industries,
+            typical_keywords,
+            is_active,
+            version,
+        ) in DEFAULT_DOMAIN_CATALOG:
+            connection.execute(
+                """
+                INSERT INTO domain_catalog (
+                    domain_code,
+                    family_name,
+                    display_name,
+                    description,
+                    example_industries,
+                    typical_keywords,
+                    is_active,
+                    version
+                )
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)
+                ON CONFLICT (domain_code) DO UPDATE
+                SET
+                    family_name = EXCLUDED.family_name,
+                    display_name = EXCLUDED.display_name,
+                    description = EXCLUDED.description,
+                    example_industries = EXCLUDED.example_industries,
+                    typical_keywords = EXCLUDED.typical_keywords,
+                    is_active = EXCLUDED.is_active,
+                    version = GREATEST(domain_catalog.version, EXCLUDED.version),
+                    updated_at = NOW()
+                """,
+                (
+                    domain_code,
+                    family_name,
+                    display_name,
+                    description,
+                    json.dumps(example_industries, ensure_ascii=False),
+                    json.dumps(typical_keywords, ensure_ascii=False),
+                    is_active,
+                    version,
+                ),
+            )
 
         role_rows = connection.execute(
             """

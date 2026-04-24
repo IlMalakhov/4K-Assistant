@@ -610,11 +610,21 @@ class InterviewerAgent:
             "role_code": role_code,
         }
 
-    def _build_role_vocabulary(self, role: dict, role_code: str, normalized_duties: str | None) -> dict:
+    def _build_role_vocabulary(
+        self,
+        role: dict,
+        role_code: str,
+        normalized_duties: str | None,
+        *,
+        domain_profile: dict | None = None,
+        processes: list[str] | None = None,
+        tasks: list[str] | None = None,
+        stakeholders: list[str] | None = None,
+    ) -> dict:
         base_vocab = {
             "linear_employee": {
                 "action_verbs": ["проверить", "зафиксировать", "уточнить", "обработать", "эскалировать"],
-                "work_entities": ["тикет", "заявка", "журнал", "инструкция", "инцидент", "SLA"],
+                "work_entities": ["задача", "журнал", "инструкция", "статус", "следующий шаг", "результат"],
                 "participants": ["инициатор запроса", "смежная команда", "руководитель"],
                 "phrasing_style": "конкретный операционный язык, короткие действия, работа по правилам и статусам",
             },
@@ -638,6 +648,28 @@ class InterviewerAgent:
         duty_items = self._parse_bullets(normalized_duties)
         if duty_items:
             vocabulary["user_phrases"] = duty_items[:5]
+        domain_specific_entities: list[str] = []
+        for item in (domain_profile or {}).get("artifacts") or []:
+            text = str(item).strip()
+            if text and text not in domain_specific_entities:
+                domain_specific_entities.append(text)
+        for item in (domain_profile or {}).get("systems") or []:
+            text = str(item).strip()
+            if text and text not in domain_specific_entities:
+                domain_specific_entities.append(text)
+        for item in tasks or []:
+            text = str(item).strip()
+            if text and text not in domain_specific_entities:
+                domain_specific_entities.append(text)
+        for item in processes or []:
+            text = str(item).strip()
+            if text and text not in domain_specific_entities:
+                domain_specific_entities.append(text)
+        if domain_specific_entities:
+            vocabulary["work_entities"] = domain_specific_entities[:6]
+        participant_values = [str(item).strip() for item in (stakeholders or []) if str(item).strip()]
+        if participant_values:
+            vocabulary["participants"] = participant_values[:4]
         return vocabulary
 
     def _build_role_skill_profile(self, role_id: int | None, role_code: str | None) -> dict:
@@ -689,16 +721,42 @@ class InterviewerAgent:
             duties=duties,
             normalized_duties=normalized_duties,
         )
-        domain = normalized_company_industry or self._infer_domain(position, duties or normalized_duties, company_industry)
-        processes = self._extract_user_processes(normalized_duties, position, duties)
-        tasks = self._parse_bullets(normalized_duties) or processes
-        stakeholders = self._extract_stakeholders(role_match.code if role_match else None, source_text)
-        risks = self._extract_risks(role_match.code if role_match else None, source_text)
-        constraints = self._extract_constraints(role, source_text)
+        domain_profile = deepseek_client.generate_domain_profile(
+            position=position,
+            duties=duties or normalized_duties,
+            company_industry=normalized_company_industry or company_industry,
+            role_name=role_match.name if role_match else None,
+        )
+        domain = str(
+            domain_profile.get("domain_label")
+            or normalized_company_industry
+            or self._infer_domain(position, duties or normalized_duties, company_industry)
+        )
+        processes = [str(item) for item in (domain_profile.get("processes") or []) if str(item).strip()] or self._extract_user_processes(normalized_duties, position, duties)
+        tasks = [str(item) for item in (domain_profile.get("tasks") or []) if str(item).strip()] or self._parse_bullets(normalized_duties) or processes
+        stakeholders = [str(item) for item in (domain_profile.get("stakeholders") or []) if str(item).strip()] or self._extract_stakeholders(role_match.code if role_match else None, source_text)
+        risks = [str(item) for item in (domain_profile.get("risks") or []) if str(item).strip()] or self._extract_risks(role_match.code if role_match else None, source_text)
+        constraints = [str(item) for item in (domain_profile.get("constraints") or []) if str(item).strip()] or self._extract_constraints(role, source_text)
         role_limits = self._build_role_limits(role or {}, role_match.code if role_match else "", stakeholders) if role and role_match else {}
-        role_vocabulary = self._build_role_vocabulary(role or {}, role_match.code if role_match else "", normalized_duties) if role and role_match else {}
+        role_vocabulary = (
+            self._build_role_vocabulary(
+                role or {},
+                role_match.code if role_match else "",
+                normalized_duties,
+                domain_profile=domain_profile,
+                processes=processes,
+                tasks=tasks,
+                stakeholders=stakeholders,
+            )
+            if role and role_match
+            else {}
+        )
         context_vars = {
             "domain": domain,
+            "domain_code": domain_profile.get("domain_code"),
+            "domain_family": domain_profile.get("domain_family"),
+            "domain_catalog_entry": domain_profile.get("domain_catalog_entry"),
+            "domain_profile": domain_profile,
             "company_industry": normalized_company_industry,
             "company_industry_raw": company_industry,
             "position": position,

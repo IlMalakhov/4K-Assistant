@@ -47,6 +47,16 @@
 
     <section class="panel onboarding-panel hidden" id="onboarding-panel">
       <div class="onboarding-shell">
+        <div class="onboarding-topbar">
+          <div class="brand dashboard-brand">4K Ассистент</div>
+          <div class="onboarding-topbar-actions">
+            <button id="onboarding-back-button" type="button" class="ghost-button compact-ghost">Назад</button>
+            <button id="onboarding-exit-button" type="button" class="topbar-exit-button">
+              <span class="topbar-user-icon" aria-hidden="true">✕</span>
+              <span>Выйти</span>
+            </button>
+          </div>
+        </div>
         <div class="onboarding-copy">
           <div class="step-badge" id="step-badge">Шаг 01</div>
           <h2 id="onboarding-title">Познакомьтесь с AI-ассистентом</h2>
@@ -107,6 +117,11 @@
           <div class="assessment-actions">
             <strong id="assessment-progress-value">0%</strong>
             <button id="assessment-action-button" type="button" class="primary-button">Продолжить</button>
+            <div id="assessment-preparing" class="assessment-preparing hidden" aria-live="polite">
+              <div id="assessment-preparing-ring" class="preparing-ring" style="--progress: 0%;">
+                <span id="assessment-preparing-percent" class="preparing-ring-value">0%</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -150,6 +165,15 @@
             <h2>Добро пожаловать в систему AI-оценки</h2>
             <p id="ai-hero-description">Пройдите первый ассессмент, чтобы получить ваш профиль компетенций и персонализированные рекомендации от искусственного интеллекта.</p>
             <button id="start-first-assessment" type="button" class="primary-button">Начать первый ассессмент</button>
+            <div id="welcome-assessment-preparing" class="hero-preparing hidden" aria-live="polite">
+              <div id="welcome-assessment-ring" class="preparing-ring hero" style="--progress: 0%;">
+                <span id="welcome-assessment-percent" class="preparing-ring-value">0%</span>
+              </div>
+              <div class="preparing-copy">
+                <strong id="welcome-assessment-title">Подготавливаем кейсы</strong>
+                <span id="welcome-assessment-text">Система собирает персонализированный набор кейсов.</span>
+              </div>
+            </div>
           </div>
           <div class="ai-hero-illustration">◔</div>
         </section>
@@ -164,7 +188,15 @@
               <div class="mini-card-icon">4K</div>
               <h3>Оценка 4К компетенций</h3>
               <p>Комплексный анализ ключевых навыков будущего: Креативность, Критическое мышление, Коммуникация и Кооперация.</p>
-              <div class="mini-card-footer"><span>20 минут</span><button id="library-start-button" type="button" class="mini-start-button">Начать</button></div>
+              <div class="mini-card-footer">
+                <span>20 минут</span>
+                <button id="library-start-button" type="button" class="mini-start-button">Начать</button>
+                <div id="library-assessment-preparing" class="mini-card-preparing hidden">
+                  <div id="library-assessment-ring" class="preparing-ring mini" style="--progress: 0%;">
+                    <span id="library-assessment-percent" class="preparing-ring-value">0%</span>
+                  </div>
+                </div>
+              </div>
             </article>
             <article class="assessment-mini-card muted-card warm">
               <div class="mini-card-icon muted-icon">◌</div>
@@ -678,18 +710,6 @@
             </div>
             <div id="admin-report-detail-competency-bars" class="admin-detail-competency-visual"></div>
           </article>
-
-          <article class="report-insight-card admin-report-mbti-card">
-            <div class="report-card-head">
-              <div>
-                <p class="section-label accent-label">Профиль MBTI</p>
-                <h3 id="admin-report-detail-mbti-type">Нет данных</h3>
-              </div>
-              <span class="admin-detail-card-icon">⌘</span>
-            </div>
-            <p id="admin-report-detail-mbti-summary">Данные MBTI пока недоступны для этой записи.</p>
-            <div id="admin-report-detail-mbti-axes" class="admin-detail-mbti-axes"></div>
-          </article>
         </section>
 
         <section class="admin-detail-insights-card">
@@ -766,15 +786,25 @@
         <button id="prechat-start-button" type="button" class="primary-button prechat-start">Начать</button>
         <p id="prechat-error" class="error" hidden></p>
         <p class="prechat-duration">Ориентировочное время: 45 минут</p>
-        <div class="prechat-social-proof">Более 12,000 профессионалов уже прошли этот ассессмент</div>
+        <div class="prechat-social-proof">Система запущена недавно — вы проходите один из первых ассессментов</div>
       </div>
     </section>
 
     <section class="panel interview-panel hidden" id="interview-panel">
       <div class="interview-topbar">
-        <div class="interview-title-row">
-          <strong id="interview-section-title">Интервью</strong>
-          <span id="interview-case-badge" class="interview-case-badge">Кейс 1 из 5</span>
+        <div class="interview-topbar-head">
+          <div class="interview-title-row">
+            <strong id="interview-section-title">Интервью</strong>
+            <span id="interview-case-badge" class="interview-case-badge">Кейс 1 из 5</span>
+          </div>
+          <div class="interview-topbar-actions">
+            <button id="interview-back-button" type="button" class="ghost-button compact-ghost">Назад</button>
+            <button id="interview-profile-button" type="button" class="ghost-button compact-ghost">В профиль</button>
+            <button id="interview-exit-button" type="button" class="topbar-exit-button">
+              <span class="topbar-user-icon" aria-hidden="true">👤</span>
+              <span>Выйти</span>
+            </button>
+          </div>
         </div>
         <div class="interview-progress-labels">
           <span class="active">Оценка</span>
@@ -891,15 +921,6 @@
           </div>
         </section>
 
-        <section class="profile-history-card">
-          <div class="profile-card-head">
-            <h3>Отчеты по ассессменту</h3>
-            <p>История прохождений и раскрывающиеся результаты вынесены на отдельную страницу отчетов.</p>
-          </div>
-          <div class="profile-report-redirect">
-            <button id="profile-open-reports-button" type="button" class="primary-button">Открыть отчеты</button>
-          </div>
-        </section>
       </div>
     </section>
 
@@ -912,23 +933,18 @@
       </div>
 
       <div class="profile-shell reports-shell">
+        <section class="reports-intro-card">
+          <div class="profile-card-head">
+            <h3>Как смотреть результаты</h3>
+            <p>Разбивка по навыкам открывается внутри каждой попытки. Нажмите <strong>«Раскрыть»</strong> у нужного прохождения, чтобы посмотреть детали.</p>
+          </div>
+        </section>
         <section class="profile-history-card reports-history-card">
           <div class="profile-card-head">
             <h3>История прохождений</h3>
-            <p>Выберите попытку, чтобы раскрыть результаты по всем 13 навыкам прямо внутри отчета.</p>
+            <p>Выберите нужное прохождение и откройте его детали.</p>
           </div>
           <div id="profile-history-list" class="profile-history-list"></div>
-        </section>
-
-        <section class="profile-results-card reports-results-card">
-          <div class="profile-card-head profile-results-head">
-            <div>
-              <h3>Результаты оценки по 13 навыкам</h3>
-              <p id="profile-results-caption">Откройте любой ассессмент в истории выше.</p>
-            </div>
-            <div id="profile-results-badge" class="profile-results-badge">Свернуто</div>
-          </div>
-          <div id="profile-skills-list" class="profile-skills-list"></div>
         </section>
       </div>
     </section>

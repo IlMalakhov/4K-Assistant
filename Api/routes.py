@@ -1111,7 +1111,12 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
         task_match = re.search(r"Personalized task:\s*(.*)\Z", prompt_text, flags=re.DOTALL)
         context_text = context_match.group(1).strip() if context_match else None
         task_text = task_match.group(1).strip() if task_match else None
-        return context_text or None, task_text or None
+        if context_text or task_text:
+            return context_text or None, task_text or None
+        if "\n\n" in prompt_text:
+            context_text, task_text = prompt_text.rsplit("\n\n", 1)
+            return context_text.strip() or None, task_text.strip() or None
+        return prompt_text, None
 
     case_items: list[dict] = []
     for index, row in enumerate(case_rows, start=1):
