@@ -159,6 +159,8 @@ class PromptLabCaseOption(BaseModel):
     case_id_code: str
     title: str
     type_code: str | None = None
+    interactivity_mode: str | None = None
+    is_dialog_case: bool = False
     role_names: list[str] = []
 
 
@@ -184,6 +186,10 @@ class PromptLabDashboard(BaseModel):
     production_prompt_name: str | None = None
     production_instruction_code: str | None = None
     production_instruction_version: int | None = None
+    interviewer_prompt_text: str | None = None
+    interviewer_prompt_name: str | None = None
+    interviewer_prompt_code: str | None = None
+    interviewer_prompt_version: int | None = None
 
 
 class PromptLabPromptCreateRequest(BaseModel):
@@ -225,6 +231,7 @@ class PromptLabCaseRunResponse(BaseModel):
     opening_message: str
     system_prompt: str
     methodical_context: dict
+    case_quality: dict = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -235,6 +242,44 @@ class PromptLabSystemCasePreviewResponse(BaseModel):
     base_task: str
     system_personalized_context: str | None = None
     system_personalized_task: str | None = None
+
+
+class PromptLabDialoguePreviewRequest(BaseModel):
+    user_id: int
+    case_id_code: str
+    case_generation_prompt_text: str | None = None
+
+
+class PromptLabDialoguePreviewResponse(BaseModel):
+    user: dict
+    case: dict
+    personalized_context: str
+    personalized_task: str
+    case_generation_prompt_text: str | None = None
+    opening_message: str
+    counterpart_opening_message: str | None = None
+    system_prompt: str
+    interviewer_prompt_text: str | None = None
+    interviewer_prompt_name: str | None = None
+    interviewer_prompt_code: str | None = None
+    interviewer_prompt_version: int | None = None
+    methodical_context: dict = Field(default_factory=dict)
+
+
+class PromptLabDialogueTurnRequest(BaseModel):
+    system_prompt: str
+    case_title: str
+    case_skills: list[str] = Field(default_factory=list)
+    methodical_context: dict = Field(default_factory=dict)
+    dialogue: list[dict] = Field(default_factory=list)
+    interviewer_prompt_text: str | None = None
+    user_message: str
+
+
+class PromptLabDialogueTurnResponse(BaseModel):
+    assistant_message: str
+    case_completed: bool = False
+    stop_reason: str | None = None
 
 
 class AdminMethodologyBranchItem(BaseModel):
@@ -354,6 +399,7 @@ class AdminMethodologyPersonalizationValueItem(BaseModel):
     field_code: str
     field_label: str
     field_value_template: str | None = None
+    description: str | None = None
     source_type: str
     is_required: bool = False
     display_order: int = 1
@@ -459,6 +505,7 @@ class AdminMethodologyCaseUpdateRequest(BaseModel):
     constraints_text: str | None = None
     dialog_turns_hint: str | None = None
     stakes_text: str | None = None
+    personalization_items: list[AdminMethodologyPersonalizationValueItem] = []
     personalization_options_text: str | None = None
     difficulty_toggles: str | None = None
     evaluation_notes: str | None = None
@@ -670,6 +717,8 @@ class AssessmentStartResponse(BaseModel):
     history_use_count: int = 0
     history_flag: str | None = None
     history_is_new: bool = False
+    pending_auto_finish: bool = False
+    auto_finish_delay_ms: int | None = None
 
 
 class AssessmentSessionLookupResponse(BaseModel):
@@ -712,6 +761,8 @@ class AssessmentMessageResponse(BaseModel):
     history_use_count: int = 0
     history_flag: str | None = None
     history_is_new: bool = False
+    pending_auto_finish: bool = False
+    auto_finish_delay_ms: int | None = None
 
 
 class SkillAssessmentResponse(BaseModel):

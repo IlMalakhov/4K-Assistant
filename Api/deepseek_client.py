@@ -14,6 +14,7 @@ from psycopg.rows import dict_row
 from Api.case_context_builder import build_case_context
 from Api.case_text_cleanup import cleanup_case_list, cleanup_case_text, join_case_list
 from Api.config import settings
+from Api.database import get_active_interviewer_prompt, get_connection
 
 FORBIDDEN_EXTERNAL_RESOURCE_PATTERNS = (
     r"https?://\S+",
@@ -109,6 +110,26 @@ class DeepSeekClient:
     @property
     def enabled(self) -> bool:
         return bool(self.api_key)
+
+    def _get_interviewer_prompt_text(self, prompt_code: str, fallback_text: str, **format_values: str) -> str:
+        stored_text: str | None = None
+        try:
+            with get_connection() as connection:
+                stored_text = get_active_interviewer_prompt(connection, prompt_code)
+        except Exception:
+            stored_text = None
+        prompt_text = str(stored_text or fallback_text or "").strip()
+        if format_values:
+            try:
+                prompt_text = prompt_text.format(**format_values)
+            except Exception:
+                fallback_prepared = str(fallback_text or "").strip()
+                if fallback_prepared:
+                    try:
+                        prompt_text = fallback_prepared.format(**format_values)
+                    except Exception:
+                        prompt_text = fallback_prepared
+        return prompt_text
 
     def generate_domain_profile(
         self,
@@ -388,7 +409,12 @@ class DeepSeekClient:
         except Exception:
             return None
 
-    def _post_chat(self, messages: list[dict[str, str]], temperature: float = 0.3) -> str:
+    def _post_chat(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.3,
+        timeout_sec: int = 120,
+    ) -> str:
         if not self.enabled:
             raise RuntimeError("DeepSeek API key is not configured")
 
@@ -409,7 +435,7 @@ class DeepSeekClient:
             method="POST",
         )
         try:
-            with request.urlopen(req, timeout=120) as response:
+            with request.urlopen(req, timeout=timeout_sec) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except TimeoutError as exc:
             raise RuntimeError("DeepSeek request timed out") from exc
@@ -664,6 +690,67 @@ class DeepSeekClient:
             formatted_context,
             formatted_task,
         )
+
+    def build_personalized_case_materials_local_fast(
+        self,
+        *,
+        full_name: str | None,
+        position: str | None,
+        duties: str | None,
+        company_industry: str | None,
+        role_name: str | None,
+        user_profile: dict[str, Any] | None = None,
+        case_type_code: str | None = None,
+        case_title: str,
+        case_context: str,
+        case_task: str,
+        planned_total_duration_min: int | None = None,
+        personalization_variables: str | None = None,
+    ) -> tuple[dict[str, str], str, str]:
+        case_specificity = self._fallback_case_specificity(
+            position=position,
+            duties=duties,
+            company_industry=company_industry,
+            role_name=role_name,
+            user_profile=user_profile,
+            case_type_code=case_type_code,
+            case_title=case_title,
+            case_context=case_context,
+            case_task=case_task,
+        )
+        placeholders = self._extract_placeholders(
+            "\n".join(filter(None, [case_context, case_task, personalization_variables or ""]))
+        )
+        personalization_map = self._fallback_personalization_map(
+            placeholders=placeholders,
+            position=position,
+            duties=duties,
+            company_industry=company_industry,
+            role_name=role_name,
+            user_profile=user_profile,
+            planned_total_duration_min=planned_total_duration_min,
+            case_type_code=case_type_code,
+            case_title=case_title,
+            case_context=case_context,
+            case_task=case_task,
+            case_specificity=case_specificity,
+        )
+        raw_context = self.apply_personalization(case_context, personalization_map)
+        raw_task = self.apply_personalization(case_task, personalization_map)
+        formatted_context, formatted_task = self._format_user_case_materials(
+            case_type_code=case_type_code,
+            case_title=case_title,
+            case_context=raw_context,
+            case_task=raw_task,
+            role_name=role_name,
+            company_industry=company_industry,
+            full_name=full_name,
+            position=position,
+            duties=duties,
+            user_profile=user_profile,
+            case_specificity=case_specificity,
+        )
+        return personalization_map, formatted_context, formatted_task
 
     def normalize_duties(
         self,
@@ -1340,6 +1427,64 @@ class DeepSeekClient:
             parts.append(f"Что нужно сделать:\n{clean_task}")
         return "\n\n".join(part for part in parts if part).strip()
 
+    def build_dialog_counterpart_opening_message(
+        self,
+        *,
+        case_title: str,
+        case_context: str,
+        case_task: str,
+        interactivity_mode: str | None,
+    ) -> str:
+        source_text = "\n".join(
+            part.strip()
+            for part in (case_context, case_task, case_title)
+            if str(part or "").strip()
+        )
+        if not self._is_dialog_interactivity_mode(interactivity_mode):
+            task_text = cleanup_case_text(case_task).strip()
+            normalized_task = task_text.lower()
+            if "ответ" in normalized_task and ("клиент" in normalized_task or "пользоват" in normalized_task):
+                return "Какой ответ вы дадите пользователю в этой ситуации?"
+            if "вопрос" in normalized_task or "уточ" in normalized_task:
+                return "Какие вопросы вы зададите в первую очередь, чтобы прояснить ситуацию?"
+            if "приоритет" in normalized_task or "распред" in normalized_task:
+                return "Как вы определите первый приоритет и что возьмете в работу сначала?"
+            if "причин" in normalized_task or "разоб" in normalized_task:
+                return "С чего вы начнете разбор этой ситуации и что захотите проверить первым?"
+            if "иде" in normalized_task or "улучш" in normalized_task:
+                return "Какое решение вы предложите по этой ситуации и почему начнете именно с него?"
+            return "Как вы начнете действовать в этой ситуации?"
+
+        quote_match = re.search(r"[«\"]([^»\"]{12,280})[»\"]", source_text)
+        if quote_match:
+            return cleanup_case_text(quote_match.group(1)).strip()
+
+        normalized = source_text.lower()
+        if "коллег" in normalized or "смен" in normalized:
+            return (
+                "Слушай, у меня правда был завал, и я перекинул это дальше без нормального комментария. "
+                "Давай сразу по делу: что именно в этой передаче тебя больше всего выбило?"
+            )
+        if "клиент" in normalized:
+            return (
+                "Честно, меня эта ситуация уже раздражает: вопрос вроде закрыли, а по факту ничего не решилось. "
+                "Объясните, что у вас сейчас происходит."
+            )
+        if "руковод" in normalized or "лидер" in normalized:
+            return (
+                "Я вижу, что по этой теме у нас уже накапливается напряжение. "
+                "Давайте проговорим прямо: что именно сейчас требует отдельной договоренности?"
+            )
+        if "смеж" in normalized or "стейкхолдер" in normalized:
+            return (
+                "Со своей стороны скажу честно: у нас сейчас другой приоритет, и быстро подстроиться под ваш запрос не получится. "
+                "Что для вас в этой ситуации критично в первую очередь?"
+            )
+        return (
+            "Давайте начнем прямо с сути. "
+            "Что именно в этой ситуации вы хотите обсудить со мной в первую очередь?"
+        )
+
     def split_user_case_message(self, text: str) -> tuple[str, str]:
         value = str(text or "").strip()
         if not value:
@@ -1411,6 +1556,10 @@ class DeepSeekClient:
         dialogue: list[dict[str, str]],
         case_title: str,
         case_skills: list[str],
+        interactivity_mode: str | None = None,
+        format_control_rules: str | None = None,
+        recommended_answer_length: str | None = None,
+        interviewer_prompt_override: str | None = None,
         fallback_user_message: str,
     ) -> DeepSeekTurnResult:
         fallback = self._fallback_turn(
@@ -1418,39 +1567,101 @@ class DeepSeekClient:
             user_message=fallback_user_message,
             dialogue=dialogue,
             case_skills=case_skills,
+            interactivity_mode=interactivity_mode,
         )
         if not self.enabled:
             return fallback
 
-        user_turns = sum(1 for item in dialogue if item["role"] == "user")
-
-        instruction = (
-            "Ты агент Интервьюер и ведешь живое интервью по кейсу. "
-            "Твоя задача не просто принять ответ, а раскрыть мышление пользователя. "
-            "Работай по следующей логике. "
-            "1. Сначала проанализируй весь диалог и особенно последний ответ пользователя. "
-            "2. Определи, какие детали пользователь уже раскрыл достаточно ясно, а какие еще не раскрыл или раскрыл слишком поверхностно. "
-            "3. Выбери один самый важный следующий пробел в ответе пользователя. "
-            "4. Сформулируй ровно один уточняющий вопрос только по этому пробелу. "
-            "5. Вопрос должен опираться на контекст, конфликт, ограничения и последствия именно этого кейса. "
-            "6. Веди интервью по сценарию кейса, а не по абстрактному универсальному опроснику. "
-            "7. Не подсказывай пользователю, что именно он должен назвать. Не перечисляй ему готовые блоки ответа, правильные шаги, риски, метрики, ограничения, стейкхолдеров или ожидаемую структуру решения. "
-            "8. Если нужно спросить о риске, шаге или участнике, спрашивай через ситуацию кейса и выбор пользователя, а не как через экзаменационный чек-лист. "
-            "9. Не задавай повторно вопросы по тем темам, на которые пользователь уже дал ясный и содержательный ответ. "
-            "10. Не задавай по кругу один и тот же вопрос в другой формулировке. Если тема уже обсуждалась, переходи к другой недостающей детали. "
-            "11. Если пользователь уже описал часть решения, обязательно опирайся на его ответ и добирай только то, чего не хватает. "
-            "12. Не пересказывай ответ пользователя и не оценивай его. Возвращай только следующий вопрос. "
-            "Уточняй только те недостающие детали, которые действительно важны внутри этого кейса. "
-            f"В этом кейсе особенно важно раскрыть навыки: {', '.join(case_skills) if case_skills else 'не указаны'}. "
-            "Задавай ровно один следующий уточняющий вопрос за ход, если кейс еще не раскрыт. "
-            "Не завершай кейс самостоятельно. Завершение кейса происходит только по тайм-ауту или по отдельной команде завершения. "
-            "Никогда не проси пользователя отправлять, загружать, пересылать, публиковать или размещать информацию "
-            "во внешних сервисах, на сайтах, в мессенджерах, почте, документах, облачных хранилищах или CRM. "
-            "Все ответы пользователь должен давать только в текущем диалоге системы. "
-            "Верни только JSON с полем assistant_message. "
-            "Это должен быть следующий уточняющий вопрос без каких-либо оценок пользователя."
+        dialog_case_mode = self._is_dialog_interactivity_mode(interactivity_mode)
+        dialog_case_policy_instruction = (
+            "Это диалоговый кейс. "
+            "Веди себя как собеседник внутри сцены кейса, а не как универсальный интервью-бот. "
+            "Говори естественной рабочей репликой по ситуации. "
+            "Не выходи из роли и не превращай ответ в методический follow-up-чеклист."
+            if dialog_case_mode
+            else ""
         )
-        messages = [{"role": "system", "content": system_prompt}, {"role": "system", "content": instruction}, *dialogue]
+
+        if dialog_case_mode:
+            fallback_instruction = (
+                "Ты агент Интервьюер и ведешь кейс в формате ролевого диалога. "
+                "Это не абстрактное интервью и не универсальный follow-up-опросник. "
+                "Отвечай как живой собеседник внутри ситуации кейса: коллега, смежник, клиент, руководитель или другой участник, которого предполагает сцена. "
+                "Каждая твоя реплика должна звучать как естественное продолжение рабочего разговора по этой ситуации. "
+                "Не выходи из роли собеседника и не переключайся в режим экзаменатора. "
+                "Не перечисляй пользователю критерии оценки, обязательные блоки, правильные шаги, риски, метрики, ограничения, стейкхолдеров или ожидаемую структуру ответа. "
+                "Если нужно добрать мысль пользователя, делай это через естественную реплику по сцене: уточнение, возражение, просьбу конкретизировать, реакцию на риск или следующий шаг. "
+                "Не повторяй один и тот же вопрос по кругу. Если тема уже раскрыта, двигай разговор дальше по ситуации. "
+                "Внутренне учитывай режим интерактивности кейса, правила контроля формата ответа и рекомендуемую длину ответа, если они заданы. "
+                "Если ответ пользователя слишком короткий, формально обрывается или не дотягивает до ожидаемой глубины, продолжи разговор одной естественной репликой по сцене, а не служебной подсказкой. "
+                "В этом кейсе особенно важно раскрыть навыки: {skills}. "
+                "Режим интерактивности кейса: {interactivity_mode}. "
+                "Контроль формата ответа: {format_control_rules}. "
+                "Рекомендуемая длина ответа: {recommended_answer_length}. "
+                "Давай ровно одну следующую реплику за ход. "
+                "Не завершай кейс самостоятельно. Завершение кейса происходит только по тайм-ауту или по отдельной команде завершения. "
+                "Никогда не проси пользователя отправлять, загружать, пересылать, публиковать или размещать информацию "
+                "во внешних сервисах, на сайтах, в мессенджерах, почте, документах, облачных хранилищах или CRM. "
+                "Все ответы пользователь должен давать только в текущем диалоге системы. "
+                "Верни только JSON с полем assistant_message. "
+                "Это должна быть одна естественная реплика собеседника по сцене без оценивания пользователя."
+            )
+        else:
+            fallback_instruction = (
+                "Ты агент Интервьюер и ведешь живое интервью по кейсу. "
+                "Твоя задача не просто принять ответ, а раскрыть мышление пользователя. "
+                "Работай по следующей логике. "
+                "1. Сначала проанализируй весь диалог и особенно последний ответ пользователя. "
+                "2. Определи, какие детали пользователь уже раскрыл достаточно ясно, а какие еще не раскрыл или раскрыл слишком поверхностно. "
+                "3. Выбери один самый важный следующий пробел в ответе пользователя. "
+                "4. Сформулируй ровно один уточняющий вопрос только по этому пробелу. "
+                "5. Вопрос должен опираться на контекст, конфликт, ограничения и последствия именно этого кейса. "
+                "6. Веди интервью по сценарию кейса, а не по абстрактному универсальному опроснику. "
+                "7. Не подсказывай пользователю, что именно он должен назвать. Не перечисляй ему готовые блоки ответа, правильные шаги, риски, метрики, ограничения, стейкхолдеров или ожидаемую структуру решения. "
+                "8. Если нужно спросить о риске, шаге или участнике, спрашивай через ситуацию кейса и выбор пользователя, а не как через экзаменационный чек-лист. "
+                "9. Не задавай повторно вопросы по тем темам, на которые пользователь уже дал ясный и содержательный ответ. "
+                "10. Не задавай по кругу один и тот же вопрос в другой формулировке. Если тема уже обсуждалась, переходи к другой недостающей детали. "
+                "11. Если пользователь уже описал часть решения, обязательно опирайся на его ответ и добирай только то, чего не хватает. "
+                "12. Не пересказывай ответ пользователя и не оценивай его. Возвращай только следующий вопрос. "
+                "13. Внутренне учитывай режим интерактивности кейса, правила контроля формата ответа и рекомендуемую длину ответа, если они заданы. "
+                "14. Если ответ пользователя слишком короткий, слишком формально обрывается или не дотягивает до ожидаемой глубины, добери это одним нейтральным вопросом через контекст кейса. "
+                "15. Если по правилам формата ожидается определенный тип ответа, направляй пользователя мягко через ситуацию кейса, но не раскрывай ему служебные критерии, не цитируй методические правила и не превращай вопрос в подсказку-шаблон. "
+                "Уточняй только те недостающие детали, которые действительно важны внутри этого кейса. "
+                "В этом кейсе особенно важно раскрыть навыки: {skills}. "
+                "Режим интерактивности кейса: {interactivity_mode}. "
+                "Контроль формата ответа: {format_control_rules}. "
+                "Рекомендуемая длина ответа: {recommended_answer_length}. "
+                "Задавай ровно один следующий уточняющий вопрос за ход, если кейс еще не раскрыт. "
+                "Не завершай кейс самостоятельно. Завершение кейса происходит только по тайм-ауту или по отдельной команде завершения. "
+                "Никогда не проси пользователя отправлять, загружать, пересылать, публиковать или размещать информацию "
+                "во внешних сервисах, на сайтах, в мессенджерах, почте, документах, облачных хранилищах или CRM. "
+                "Все ответы пользователь должен давать только в текущем диалоге системы. "
+                "Верни только JSON с полем assistant_message. "
+                "Это должен быть следующий уточняющий вопрос без каких-либо оценок пользователя."
+            )
+        format_values = {
+            "skills": (', '.join(case_skills) if case_skills else 'не указаны'),
+            "interactivity_mode": (str(interactivity_mode or '').strip() or 'не задан'),
+            "format_control_rules": (str(format_control_rules or '').strip() or 'не заданы'),
+            "recommended_answer_length": (str(recommended_answer_length or '').strip() or 'не задана'),
+        }
+        if str(interviewer_prompt_override or "").strip():
+            try:
+                instruction = str(interviewer_prompt_override).format(**format_values)
+            except Exception:
+                instruction = str(interviewer_prompt_override)
+        elif dialog_case_mode:
+            instruction = fallback_instruction.format(**format_values)
+        else:
+            instruction = self._get_interviewer_prompt_text(
+                "case_follow_up",
+                fallback_instruction,
+                **format_values,
+            )
+        messages = [{"role": "system", "content": system_prompt}]
+        if dialog_case_policy_instruction:
+            messages.append({"role": "system", "content": dialog_case_policy_instruction})
+        messages.extend([{"role": "system", "content": instruction}, *dialogue])
         try:
             raw = self._post_chat(messages, temperature=0.35)
             parsed = self._parse_json(raw)
@@ -1479,11 +1690,12 @@ class DeepSeekClient:
         if not self.enabled:
             return fallback
 
-        instruction = (
+        fallback_instruction = (
             "Пользователь нажал кнопку завершения кейса. "
             "Нужно только вежливо сообщить, что кейс завершен и диалог сохранен в системе. "
             "Верни JSON-объект только с полем assistant_message."
         )
+        instruction = self._get_interviewer_prompt_text("manual_finish", fallback_instruction)
         messages = [{"role": "system", "content": system_prompt}, {"role": "system", "content": instruction}, *dialogue]
         try:
             raw = self._post_chat(messages, temperature=0.2)
@@ -1511,11 +1723,12 @@ class DeepSeekClient:
         if not self.enabled:
             return fallback
 
-        instruction = (
+        fallback_instruction = (
             "Время на прохождение кейса закончилось. "
             "Нужно только сообщить, что кейс завершен из-за окончания времени, а диалог сохранен в системе. "
             "Верни JSON-объект только с полем assistant_message."
         )
+        instruction = self._get_interviewer_prompt_text("timeout_finish", fallback_instruction)
         messages = [{"role": "system", "content": system_prompt}, {"role": "system", "content": instruction}, *dialogue]
         try:
             raw = self._post_chat(messages, temperature=0.2)
@@ -1589,14 +1802,20 @@ class DeepSeekClient:
         user_message: str,
         dialogue: list[dict[str, str]],
         case_skills: list[str],
+        interactivity_mode: str | None = None,
         force_follow_up: bool = False,
     ) -> DeepSeekTurnResult:
-        user_turns = sum(1 for item in dialogue if item["role"] == "user")
-        follow_up = self._build_follow_up_question(
-            user_message=user_message,
-            dialogue=dialogue,
-            case_skills=case_skills,
-        )
+        if self._is_dialog_interactivity_mode(interactivity_mode):
+            follow_up = self._build_dialog_case_reply(
+                user_message=user_message,
+                dialogue=dialogue,
+            )
+        else:
+            follow_up = self._build_follow_up_question(
+                user_message=user_message,
+                dialogue=dialogue,
+                case_skills=case_skills,
+            )
         return DeepSeekTurnResult(
             assistant_message=follow_up,
             is_case_complete=False,
@@ -1643,6 +1862,10 @@ class DeepSeekClient:
             completion_score=None,
             evaluator_summary="",
         )
+
+    def _is_dialog_interactivity_mode(self, interactivity_mode: str | None) -> bool:
+        normalized = str(interactivity_mode or "").strip().lower()
+        return "диалог" in normalized
 
     def _build_follow_up_question(
         self,
@@ -1700,6 +1923,432 @@ class DeepSeekClient:
         if "шаг" not in normalized_user and "план" not in normalized_user and "сначала" not in normalized_user:
             return topic_questions["steps"]
         return topic_questions["control"]
+
+    def _build_dialog_case_reply(
+        self,
+        *,
+        user_message: str,
+        dialogue: list[dict[str, str]],
+    ) -> str:
+        normalized_user = str(user_message or "").strip().lower()
+        scenario_text = " ".join(item["content"] for item in dialogue if item["role"] == "assistant").lower()
+        assistant_messages = [
+            str(item["content"] or "").strip()
+            for item in dialogue
+            if item["role"] == "assistant" and str(item["content"] or "").strip()
+        ]
+        assistant_turn_count = len(assistant_messages)
+        asked_stages: set[str] = set()
+        for message in assistant_messages[-4:]:
+            asked_stages.update(self._infer_dialog_reply_stages(message))
+        is_peer_dialog = "коллег" in scenario_text or "смен" in scenario_text
+        is_development_dialog = any(
+            marker in scenario_text
+            for marker in (
+                "изменил подход",
+                "план изменений",
+                "план развития",
+                "план роста",
+                "развивающ",
+                "обратной связ",
+                "зона роста",
+                "сильная сторона",
+                "подчинен",
+                "подчинён",
+                "развити",
+            )
+        )
+        wants_support = any(
+            token in normalized_user
+            for token in (
+                "поддержк",
+                "с моей стороны",
+                "с моей помощ",
+                "договоренност",
+                "договорённост",
+                "нужно от тебя",
+                "нужно от вас",
+                "чтобы план",
+                "не развал",
+            )
+        )
+        wants_closure = any(
+            token in normalized_user
+            for token in (
+                "подведу итог",
+                "фиксируем",
+                "контрольную точку",
+                "контрольная точка",
+                "ты с этим согласен",
+                "вы с этим согласны",
+                "так и работаем",
+                "договорились",
+            )
+        )
+        wants_root_cause = any(
+            token in normalized_user
+            for token in (
+                "помочь",
+                "перегруз",
+                "что происходит",
+                "в чем причина",
+                "в чём причина",
+                "сбой",
+                "не успева",
+                "нагруз",
+                "узкое место",
+                "почему ты стал так",
+                "почему вы стали так",
+            )
+        )
+        wants_change_commitment = any(
+            token in normalized_user
+            for token in (
+                "готов изменить",
+                "на этой неделе",
+                "изменить уже",
+                "следующие шаги",
+                "буду делать",
+                "план",
+                "исправлю",
+                "начну",
+                "готов поменять",
+                "что ты сам готов",
+                "что вы сами готовы",
+            )
+        )
+        wants_workflow_rule = any(
+            token in normalized_user
+            for token in (
+                "должно",
+                "нужно",
+                "обязательно",
+                "минимум",
+                "статус",
+                "комментар",
+                "проверили",
+                "ждем",
+                "ждём",
+            )
+        )
+        has_root_cause_answer = any(
+            token in normalized_user
+            for token in (
+                "перегруз",
+                "нагруз",
+                "не успева",
+                "много заяв",
+                "очеред",
+                "слишком много",
+                "не хватает времени",
+                "сбой",
+                "узкое место",
+                "разрываюсь",
+                "три заявки",
+                "висят",
+            )
+        )
+        has_missing_info_answer = any(
+            token in normalized_user
+            for token in (
+                "непонятно",
+                "не хват",
+                "не было",
+                "без комментар",
+                "без коммент",
+                "что уже проверили",
+                "что проверили",
+                "что именно нужно",
+                "какие данные",
+                "какой статус",
+            )
+        )
+        has_workflow_rule_answer = any(
+            token in normalized_user
+            for token in (
+                "обязательно",
+                "минимум",
+                "в карточке",
+                "должен быть статус",
+                "должен быть",
+                "оставлять комментар",
+                "фиксировать",
+                "шаблон передачи",
+                "передач",
+                "короткий шаблон",
+            )
+        )
+        has_change_commitment_answer = any(
+            token in normalized_user
+            for token in (
+                "буду",
+                "начну",
+                "изменю",
+                "проверять",
+                "фиксировать",
+                "обновлять",
+                "ставить статус",
+                "оставлять комментар",
+                "на этой неделе",
+                "договоримся",
+            )
+        )
+        has_support_answer = any(
+            token in normalized_user
+            for token in (
+                "нужно от тебя",
+                "нужно от вас",
+                "помоги",
+                "поддержк",
+                "если ты",
+                "если вы",
+                "договоренность",
+                "договорённость",
+                "эскал",
+                "сверка",
+                "контрольная точка",
+            )
+        )
+        has_future_change_answer = any(
+            token in normalized_user
+            for token in (
+                "в следующий раз",
+                "дальше будем",
+                "не повторялось",
+                "не повторялись",
+                "дальше использовать",
+                "с этого дня",
+                "при следующей передаче",
+            )
+        )
+        has_agreement_answer = any(
+            token in normalized_user
+            for token in (
+                "соглас",
+                "договорились",
+                "подходит",
+                "фиксируем",
+                "так и работаем",
+                "давай так",
+            )
+        )
+
+        if is_development_dialog:
+            if "root_cause" not in asked_stages:
+                return "Хорошо. Тогда давайте сначала разберем причину: где именно сейчас возникает основной перегруз или сбой, из-за которого ситуация повторяется?"
+            if "change_commitment" not in asked_stages:
+                if has_root_cause_answer:
+                    return "Хорошо. Тогда что именно вы готовы изменить уже на этой неделе, чтобы команда снова видела понятный статус и следующий шаг без дополнительных уточнений?"
+                return "Понял. Причину зафиксировали не до конца. Скажите тогда конкретно: где именно у вас сейчас самый сильный перегруз или сбой, из-за которого статусы начинают выпадать?"
+            if "support_need" not in asked_stages:
+                if has_change_commitment_answer:
+                    return "Понял. Тогда какая поддержка или договоренность со второй стороны нужна вам, чтобы новый порядок действительно удержался в работе?"
+                return "Хорошо. Тогда что именно вы готовы изменить уже на этой неделе, чтобы новый порядок не остался просто словами?"
+            if "agreement" not in asked_stages:
+                if has_support_answer:
+                    return "Хорошо. Тогда давайте зафиксируем это как рабочую договоренность и сверим контрольную точку. Вы готовы на таком варианте остановиться?"
+                return "Понял. Тогда какая поддержка или договоренность со второй стороны нужна вам, чтобы изменение не сорвалось под нагрузкой?"
+            if "closure" not in asked_stages:
+                if wants_closure or has_agreement_answer:
+                    return "Договорились. Тогда фиксируем новый порядок, поддержку и контрольную точку на конец недели, чтобы проверить, что изменение действительно закрепилось в работе."
+                return "Хорошо. Тогда подтвердите, что на таком порядке мы останавливаемся и проверяем результат в согласованную дату."
+            if wants_closure and "closure" not in asked_stages:
+                return "Договорились. Тогда фиксируем новый порядок, поддержку и контрольную точку на конец недели, чтобы проверить, что изменение действительно закрепилось в работе."
+            return "Хорошо. Тогда так и работаем дальше: держим этот порядок и возвращаемся к нему на контрольной точке."
+
+        if (
+            wants_support
+            and "support_need" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Понял. Тогда давай зафиксируем и вторую сторону: какая поддержка или договоренность с моей стороны тебе нужна, чтобы этот план не рассыпался через пару дней?"
+            return "Понял. Тогда какая поддержка или договоренность со второй стороны нужна вам, чтобы новый порядок действительно удержался в работе?"
+
+        if (
+            wants_closure
+            and "closure" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Договорились. Тогда фиксируем новый порядок, отдельно отмечаем риск срыва и ставим контрольную точку, чтобы проверить, что договоренность реально удержалась в работе."
+            return "Договорились. Тогда фиксируем этот порядок, поддержку со второй стороны и контрольную точку, чтобы проверить, что изменения действительно закрепились."
+
+        if (
+            wants_root_cause
+            and "root_cause" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Окей, давай тогда разберем причину спокойно: где именно сейчас у тебя самый сильный перегруз или сбой, из-за которого статус и комментарии начинают выпадать?"
+            return "Хорошо. Тогда давайте сначала разберем причину: где именно сейчас возникает основной перегруз или сбой, из-за которого ситуация повторяется?"
+
+        if (
+            any(token in normalized_user for token in ("сорвал", "резко", "сорвался", "вспылил", "эмоц"))
+            and "emotion" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Я услышал, что тебя это уже сильно задело. Давай тогда без общих слов: чего именно не хватило в передаче инцидента, чтобы ты мог нормально подхватить задачу без повторной диагностики?"
+            return "Понимаю, что ситуация уже накопилась. Скажите прямо: чего именно вам не хватило в этой передаче, чтобы можно было спокойно продолжить работу без лишнего круга?"
+
+        if (
+            any(token in normalized_user for token in ("не хват", "не было", "кусками", "частями", "без комментар", "без коммент", "непонятно"))
+            and "missing_info" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Хорошо, тогда давай конкретно: какие данные или комментарии в карточке должны были быть обязательно, чтобы ты мог взять инцидент в работу без дополнительных уточнений?"
+            return "Тогда уточните конкретно: какой информации или фиксации действий вам не хватило, чтобы без задержки продолжить работу?"
+
+        if (
+            any(token in normalized_user for token in ("должно", "нужно", "обязательно", "минимум", "статус", "комментар", "проверили", "ждем", "ждём"))
+            and "workflow_rule" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Окей, это уже конкретно. Тогда давай договоримся предметно: что именно должно быть обязательным минимумом в карточке перед передачей, чтобы следующая смена могла сразу брать задачу в работу?"
+            return "Хорошо. Тогда что именно вы хотите сделать обязательным минимумом при передаче таких задач, чтобы следующий участник мог сразу продолжать работу?"
+
+        if (
+            any(token in normalized_user for token in ("срок", "задерж", "повтор", "третий", "снова", "дальше", "в следующий раз"))
+            and "future_change" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Понял. Тогда давай зафиксируем предметно: что именно у нас должно меняться в передаче таких заявок, чтобы эта история не повторялась на следующем инциденте?"
+            return "Понял. Что именно нужно изменить в вашей совместной работе, чтобы эта ситуация не повторилась при следующей передаче задачи?"
+
+        if (
+            any(token in normalized_user for token in ("обязательно", "минимум", "нужно", "должно", "фиксировать", "оставляем", "перед передачей"))
+            and "agreement" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Подходит. Тогда предлагаю так и зафиксировать: перед передачей оставляем этот минимум в карточке, а если данных не хватает, отдельно помечаем это в комментарии, а не просто переводим заявку дальше. Ты с этим согласен?"
+            return "Хорошо. Давайте тогда это зафиксируем как правило работы. Вы готовы на таком варианте договориться?"
+
+        if (
+            wants_change_commitment
+            and "change_commitment" not in asked_stages
+        ):
+            if is_peer_dialog:
+                return "Хорошо, это уже ближе к делу. Тогда что именно ты готов поменять уже на этой неделе, чтобы команда снова видела понятный статус и следующий шаг без дополнительных уточнений?"
+            return "Хорошо. Тогда что именно вы готовы изменить уже в ближайшие дни, чтобы проблема не повторялась в том же виде?"
+
+        if (
+            "agreement" in asked_stages
+            and "closure" not in asked_stages
+            and any(
+                token in normalized_user
+                for token in (
+                    "соглас",
+                    "договор",
+                    "достаточно",
+                    "подойдет",
+                    "подойдёт",
+                    "окей",
+                    "хорошо",
+                    "если ты",
+                    "если вы",
+                    "давай так",
+                    "так и договоримся",
+                )
+            )
+        ):
+            if is_peer_dialog:
+                return "Договорились. Тогда фиксируем так: перед передачей ты оставляешь обязательный минимум в карточке, а если видишь риск срыва или пробел по данным, отдельно пишешь об этом сразу. С моей стороны я тоже не возвращаю задачу молча, а прямо отмечаю, чего не хватает."
+            return "Договорились. Тогда фиксируем этот порядок как рабочее правило и в следующий раз сразу отдельно отмечаем риск, если данных или подтверждений не хватает."
+
+        if "клиент" in scenario_text:
+            return "Я вас услышал. Что именно вы предлагаете сделать следующим шагом уже сейчас, чтобы снять напряжение и не оставить вопрос в подвешенном состоянии?"
+
+        if "руковод" in scenario_text or "стейкхолдер" in scenario_text:
+            return "Хорошо. Скажите тогда прямо: на каком конкретном шаге вы хотите договориться сейчас и что для этого нужно от второй стороны?"
+
+        if is_peer_dialog:
+            if assistant_turn_count == 0:
+                return "Давай начнем с причины: где именно в этой ситуации у тебя возник основной сбой или перегруз, из-за которого все пошло по кругу?"
+            if "root_cause" not in asked_stages:
+                return "Давай тогда сначала разберем причину: где именно сейчас ломается процесс или не хватает ресурса, из-за чего эта ситуация повторяется?"
+            if (
+                "missing_info" not in asked_stages
+                and (
+                    has_root_cause_answer
+                    or (
+                        "root_cause" in asked_stages
+                        and not any(
+                            (
+                                has_missing_info_answer,
+                                has_workflow_rule_answer,
+                                has_change_commitment_answer,
+                                has_support_answer,
+                                has_agreement_answer,
+                            )
+                        )
+                    )
+                )
+            ):
+                return "Хорошо, тогда давай конкретно: каких данных или комментариев тебе не хватало в карточке, чтобы ты мог взять инцидент в работу без дополнительного круга уточнений?"
+            if (
+                "workflow_rule" not in asked_stages
+                and (
+                    has_missing_info_answer
+                    or has_workflow_rule_answer
+                    or ("missing_info" in asked_stages and has_root_cause_answer)
+                )
+            ):
+                return "Окей, это уже конкретно. Тогда давай договоримся предметно: что именно должно быть обязательным минимумом в карточке перед передачей, чтобы следующая смена могла сразу брать задачу в работу?"
+            if (
+                "change_commitment" not in asked_stages
+                and (
+                    has_workflow_rule_answer
+                    or has_future_change_answer
+                    or ("workflow_rule" in asked_stages and has_missing_info_answer)
+                )
+            ):
+                return "Хорошо, давай тогда предметно: что именно ты предлагаешь изменить в нашей работе после этого разговора?"
+            if (
+                "support_need" not in asked_stages
+                and (
+                    has_change_commitment_answer
+                    or has_future_change_answer
+                    or ("change_commitment" in asked_stages and has_workflow_rule_answer)
+                )
+            ):
+                return "Окей. А какая поддержка или договоренность с моей стороны нужна, чтобы это изменение реально закрепилось в работе?"
+            if (
+                "agreement" not in asked_stages
+                and (
+                    has_support_answer
+                    or has_change_commitment_answer
+                    or has_workflow_rule_answer
+                    or ("support_need" in asked_stages and has_future_change_answer)
+                )
+            ):
+                return "Тогда предлагаю зафиксировать это как рабочую договоренность. Ты готов на таком варианте остановиться?"
+            if (
+                "closure" not in asked_stages
+                and (
+                    has_agreement_answer
+                    or ("agreement" in asked_stages and has_support_answer)
+                )
+            ):
+                return "Договорились. Тогда коротко фиксируем новый порядок и контрольную точку, чтобы через несколько дней проверить, что он действительно работает."
+            return "Хорошо, тогда так и работаем дальше: держим этот порядок и возвращаемся к нему на ближайшей контрольной точке."
+
+        return "Хорошо. Скажите прямо: что именно в этой ситуации нужно прояснить или изменить уже сейчас, чтобы разговор сдвинулся с места?"
+
+    def _infer_dialog_reply_stages(self, text: str | None) -> set[str]:
+        normalized = str(text or "").lower()
+        stages: set[str] = set()
+        stage_keywords = {
+            "emotion": ("задело", "без общих слов", "сорвался", "сорвал", "резко"),
+            "root_cause": ("разберем причину", "разберём причину", "где именно сейчас", "основной перегруз", "основной сбой", "из-за которого"),
+            "missing_info": ("чего именно не хватило", "какие данные", "какой информации", "какие комментарии"),
+            "workflow_rule": ("обязательным минимумом", "минимумом в карточке", "что должно быть обязательным"),
+            "future_change": ("что именно должно меняться", "не повторялась", "в следующ", "при следующей передаче"),
+            "change_commitment": ("что именно ты готов поменять", "что именно вы готовы изменить", "уже на этой неделе", "в ближайшие дни"),
+            "support_need": ("какая поддержка", "какая договоренность", "какая договорённость", "с моей стороны тебе нужна", "со второй стороны нужна"),
+            "agreement": ("ты с этим согласен", "готовы на таком варианте договориться", "давайте тогда это зафиксируем"),
+            "closure": ("договорились", "тогда фиксируем так", "с моей стороны я тоже", "рабочее правило"),
+        }
+        for stage, keywords in stage_keywords.items():
+            if any(keyword in normalized for keyword in keywords):
+                stages.add(stage)
+        return stages
 
     def _infer_follow_up_topics_from_text(self, text: str | None) -> set[str]:
         normalized = str(text or "").lower()
@@ -4915,10 +5564,6 @@ class DeepSeekClient:
             r"\s*Вам нужно[^.?!]*[.?!]?",
             r"\s*Прежде чем[^.?!]*[.?!]?",
             r"\s*До того, как[^.?!]*[.?!]?",
-            r"\s*Пользователь будет вести разговор[^.?!]*[.?!]?",
-            r"\s*Пользователь вед[её]т диалог[^.?!]*[.?!]?",
-            r"\s*Бот играет роль[^.?!]*[.?!]?",
-            r"\s*Разговор пройдет в формате диалога[^.?!]*[.?!]?",
             r"\s*Чат-бот[^.?!]*[.?!]?",
             r"\s*Масштаб кейса[^.?!]*[.?!]?",
             r"\s*Но структура ответа[^.?!]*[.?!]?",
@@ -8378,7 +9023,6 @@ class DeepSeekClient:
             result,
             flags=re.IGNORECASE,
         )
-        result = re.sub(r"\bпользователь будет вести разговор в диалоге с чат-ботом: бот играет роль коллеги и отвечает на ваши реплики по ситуации\b\.?", "", result, flags=re.IGNORECASE)
         result = re.sub(r"\bот вас ожидают короткий постмортем по локальному инциденту: что случилось, какие вероятные причины лежат в основе, какие меры нужно принять сейчас и что поменять, чтобы это не повторилось\b\.?", "", result, flags=re.IGNORECASE)
         result = re.sub(r"\bлинейная роль здесь валидна только на локальном уровне\b\.?", "", result, flags=re.IGNORECASE)
         result = re.sub(r"\bлинейная роль здесь валидна только как координация мини-группы\b\.?", "", result, flags=re.IGNORECASE)
@@ -8391,7 +9035,6 @@ class DeepSeekClient:
         result = re.sub(r"\bв разбор уже входят конкретные элементы:\b", "Для разбора уже доступны конкретные материалы:", result, flags=re.IGNORECASE)
         result = re.sub(r"\bв работе уже есть конкретные задачи:\b", "Сейчас в работе уже есть конкретные задачи:", result, flags=re.IGNORECASE)
         result = re.sub(r"\bсейчас нужно провести личный разговор так, чтобы не сорваться в обвинения, сохранить рабочие отношения и добиться ясной договорённости\b", "Сейчас важно провести разговор спокойно, сохранить рабочие отношения и прийти к ясной договоренности", result, flags=re.IGNORECASE)
-        result = re.sub(r"\bРазговор пройдет в формате диалога:\s*собеседник будет отвечать на ваши реплики по ситуации\b\.?", "", result, flags=re.IGNORECASE)
         result = re.sub(r"\bОпирайтесь на факты, обозначайте влияние и предлагайте понятный следующий шаг\b\.?", "", result, flags=re.IGNORECASE)
         result = re.sub(r"\bДля разговора уже есть конкретный контекст:\b", "", result, flags=re.IGNORECASE)
         result = re.sub(r"\bСейчас важно провести разговор спокойно, сохранить рабочие отношения и прийти к ясной договоренности\b\.?", "", result, flags=re.IGNORECASE)
@@ -10131,6 +10774,8 @@ class DeepSeekClient:
         hard_variant_text: str | None = None,
         personalization_variables: str | None = None,
         instruction_text_override: str | None = None,
+        timeout_sec: int = 120,
+        strict_validation: bool = True,
     ) -> tuple[str, str]:
         if not self.enabled:
             return case_context, case_task
@@ -10175,24 +10820,28 @@ class DeepSeekClient:
                 },
                 {"role": "user", "content": prompt},
             ]
-            raw = self._post_chat(messages, temperature=0.18)
+            raw = self._post_chat(messages, temperature=0.18, timeout_sec=timeout_sec)
             try:
                 parsed = self._parse_json(raw)
             except Exception:
+                if not strict_validation:
+                    raise
                 retry_messages = list(messages) + [
                     {"role": "assistant", "content": raw},
                     {"role": "user", "content": "Верни только корректный JSON с полями context и task."},
                 ]
-                retry_raw = self._post_chat(retry_messages, temperature=0.18)
+                retry_raw = self._post_chat(retry_messages, temperature=0.18, timeout_sec=timeout_sec)
                 parsed = self._parse_json(retry_raw)
             context = str(parsed.get("context") or "")
             task = str(parsed.get("task") or "")
             if not context or not task:
+                if not strict_validation:
+                    raise RuntimeError("LLM returned empty user case fields")
                 retry_messages = list(messages) + [
                     {"role": "assistant", "content": raw},
                     {"role": "user", "content": "Верни только корректный JSON с непустыми полями context и task."},
                 ]
-                retry_raw = self._post_chat(retry_messages, temperature=0.18)
+                retry_raw = self._post_chat(retry_messages, temperature=0.18, timeout_sec=timeout_sec)
                 retry_parsed = self._parse_json(retry_raw)
                 context = str(retry_parsed.get("context") or "")
                 task = str(retry_parsed.get("task") or "")
@@ -10212,7 +10861,7 @@ class DeepSeekClient:
                 case_title=case_title,
                 role_name=role_name,
             )
-            if issues:
+            if issues and strict_validation:
                 retry_messages = list(messages) + [
                     {"role": "assistant", "content": raw},
                     {
@@ -10225,7 +10874,7 @@ class DeepSeekClient:
                         ),
                     },
                 ]
-                retry_raw = self._post_chat(retry_messages, temperature=0.18)
+                retry_raw = self._post_chat(retry_messages, temperature=0.18, timeout_sec=timeout_sec)
                 retry_parsed = self._parse_json(retry_raw)
                 normalized_context, normalized_task = self._normalize_llm_user_case_fields(
                     context=str(retry_parsed.get("context") or ""),

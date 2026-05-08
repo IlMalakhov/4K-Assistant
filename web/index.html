@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/web/app.css?v=20260506-prompt-lab-progress">
+  <link rel="stylesheet" href="/web/app.css?v=20260508-prompt-lab-dialog-counterpart-label-fix">
       <!--Favicons-->
   <link rel="icon" href="/favicons/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png">
@@ -771,97 +771,180 @@
           </div>
         </section>
 
-        <section class="admin-prompt-lab-grid">
-          <article class="admin-analytics-card admin-prompt-lab-form">
+        <div class="admin-prompt-lab-tabbar" role="tablist" aria-label="Режим Prompt Lab">
+          <button id="admin-prompt-lab-tab-cases" type="button" class="admin-prompt-lab-tab-button is-active" role="tab" aria-selected="true">Моделирование кейсов</button>
+          <button id="admin-prompt-lab-tab-dialog" type="button" class="admin-prompt-lab-tab-button" role="tab" aria-selected="false">Моделирование диалога</button>
+        </div>
+
+        <div id="admin-prompt-lab-pane-cases" class="admin-prompt-lab-pane">
+          <section class="admin-prompt-lab-grid">
+            <article class="admin-analytics-card admin-prompt-lab-form">
+              <div class="report-card-head">
+                <div>
+                  <p class="section-label accent-label">Новый запуск</p>
+                  <h3>Проверка промта</h3>
+                </div>
+              </div>
+              <label class="admin-prompt-lab-field">
+                <span>Источник системного промта</span>
+                <select id="admin-prompt-lab-source-select">
+                  <option value="file">Системный промт</option>
+                  <option value="custom">Пользовательский промт</option>
+                </select>
+              </label>
+              <label class="admin-prompt-lab-field">
+                <span>Название версии</span>
+                <input id="admin-prompt-lab-prompt-name" type="text" placeholder="Например: v2 - больше конкретики">
+              </label>
+              <label class="admin-prompt-lab-field">
+                <span>Системный промт</span>
+                <textarea id="admin-prompt-lab-prompt-text" rows="10" placeholder="Опишите правила формирования персонализированного кейса..."></textarea>
+              </label>
+              <div class="admin-prompt-lab-two">
+                <label class="admin-prompt-lab-field">
+                  <span>Пользователь</span>
+                  <select id="admin-prompt-lab-user-select"></select>
+                </label>
+                <label class="admin-prompt-lab-field">
+                  <span>Кейс</span>
+                  <div class="admin-prompt-lab-case-picker-stack">
+                    <button id="admin-prompt-lab-case-picker-button" type="button" class="ghost-button compact-ghost admin-prompt-lab-case-picker-button">Выбрать кейсы</button>
+                    <div id="admin-prompt-lab-case-picker-summary" class="admin-prompt-lab-case-picker-summary">Кейсы не выбраны</div>
+                  </div>
+                  <select id="admin-prompt-lab-case-select" multiple size="10" class="hidden"></select>
+                </label>
+              </div>
+              <div class="admin-prompt-lab-profile-grid">
+                <label class="admin-prompt-lab-field">
+                  <span>ФИО</span>
+                  <input id="admin-prompt-lab-user-name" type="text">
+                </label>
+                <label class="admin-prompt-lab-field">
+                  <span>Роль</span>
+                  <select id="admin-prompt-lab-role-select"></select>
+                </label>
+                <label class="admin-prompt-lab-field">
+                  <span>Должность</span>
+                  <input id="admin-prompt-lab-position" type="text">
+                </label>
+                <label class="admin-prompt-lab-field">
+                  <span>Сфера компании</span>
+                  <input id="admin-prompt-lab-company-industry" type="text">
+                </label>
+              </div>
+              <label class="admin-prompt-lab-field">
+                <span>Задачи и обязанности</span>
+                <textarea id="admin-prompt-lab-duties" rows="5"></textarea>
+              </label>
+              <label class="admin-prompt-lab-field">
+                <span>Расширенный профиль JSON</span>
+                <textarea id="admin-prompt-lab-profile-json" rows="7" placeholder='{"user_tasks":["..."],"user_risks":["..."]}'></textarea>
+              </label>
+              <div class="admin-prompt-lab-actions">
+                <button id="admin-prompt-lab-run-button" type="button" class="primary-button compact-primary">Сформировать кейсы</button>
+                <span id="admin-prompt-lab-status" class="admin-methodology-save-status hidden"></span>
+              </div>
+              <div id="admin-prompt-lab-progress" class="admin-prompt-lab-progress hidden" aria-live="polite">
+                <div class="admin-prompt-lab-progress-head">
+                  <strong id="admin-prompt-lab-progress-title">Формируем кейсы</strong>
+                  <span id="admin-prompt-lab-progress-value">0%</span>
+                </div>
+                <p id="admin-prompt-lab-progress-text" class="admin-prompt-lab-progress-text">Готовим запрос к генерации.</p>
+                <div class="admin-prompt-lab-progress-track">
+                  <div id="admin-prompt-lab-progress-bar" class="admin-prompt-lab-progress-bar"></div>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="admin-analytics-card admin-prompt-lab-result">
             <div class="report-card-head">
               <div>
-                <p class="section-label accent-label">Новый запуск</p>
-                <h3>Проверка промта</h3>
+                <p class="section-label accent-label">Результат</p>
+                <h3>Сформированные кейсы</h3>
               </div>
             </div>
-            <label class="admin-prompt-lab-field">
-              <span>Источник системного промта</span>
-              <select id="admin-prompt-lab-source-select">
-                <option value="file">Системный промт</option>
-                <option value="custom">Пользовательский промт</option>
-              </select>
-            </label>
-            <label class="admin-prompt-lab-field">
-              <span>Название версии</span>
-              <input id="admin-prompt-lab-prompt-name" type="text" placeholder="Например: v2 - больше конкретики">
-            </label>
-            <label class="admin-prompt-lab-field">
-              <span>Системный промт</span>
-              <textarea id="admin-prompt-lab-prompt-text" rows="10" placeholder="Опишите правила формирования персонализированного кейса..."></textarea>
-            </label>
-            <div class="admin-prompt-lab-two">
-              <label class="admin-prompt-lab-field">
-                <span>Пользователь</span>
-                <select id="admin-prompt-lab-user-select"></select>
-              </label>
-              <label class="admin-prompt-lab-field">
-                <span>Кейс</span>
-                <div class="admin-prompt-lab-case-picker-stack">
-                  <button id="admin-prompt-lab-case-picker-button" type="button" class="ghost-button compact-ghost admin-prompt-lab-case-picker-button">Выбрать кейсы</button>
-                  <div id="admin-prompt-lab-case-picker-summary" class="admin-prompt-lab-case-picker-summary">Кейсы не выбраны</div>
-                </div>
-                <select id="admin-prompt-lab-case-select" multiple size="10" class="hidden"></select>
-              </label>
+            <div id="admin-prompt-lab-result" class="admin-prompt-lab-result-body">
+              <p class="report-empty-state">Сформируйте кейсы, чтобы увидеть полный набор кейсов пользователя.</p>
             </div>
-            <div class="admin-prompt-lab-profile-grid">
-              <label class="admin-prompt-lab-field">
-                <span>ФИО</span>
-                <input id="admin-prompt-lab-user-name" type="text">
-              </label>
-              <label class="admin-prompt-lab-field">
-                <span>Роль</span>
-                <select id="admin-prompt-lab-role-select"></select>
-              </label>
-              <label class="admin-prompt-lab-field">
-                <span>Должность</span>
-                <input id="admin-prompt-lab-position" type="text">
-              </label>
-              <label class="admin-prompt-lab-field">
-                <span>Сфера компании</span>
-                <input id="admin-prompt-lab-company-industry" type="text">
-              </label>
-            </div>
-            <label class="admin-prompt-lab-field">
-              <span>Задачи и обязанности</span>
-              <textarea id="admin-prompt-lab-duties" rows="5"></textarea>
-            </label>
-            <label class="admin-prompt-lab-field">
-              <span>Расширенный профиль JSON</span>
-              <textarea id="admin-prompt-lab-profile-json" rows="7" placeholder='{"user_tasks":["..."],"user_risks":["..."]}'></textarea>
-            </label>
-            <div class="admin-prompt-lab-actions">
-              <button id="admin-prompt-lab-run-button" type="button" class="primary-button compact-primary">Сформировать кейсы</button>
-              <span id="admin-prompt-lab-status" class="admin-methodology-save-status hidden"></span>
-            </div>
-            <div id="admin-prompt-lab-progress" class="admin-prompt-lab-progress hidden" aria-live="polite">
-              <div class="admin-prompt-lab-progress-head">
-                <strong id="admin-prompt-lab-progress-title">Формируем кейсы</strong>
-                <span id="admin-prompt-lab-progress-value">0%</span>
-              </div>
-              <p id="admin-prompt-lab-progress-text" class="admin-prompt-lab-progress-text">Готовим запрос к генерации.</p>
-              <div class="admin-prompt-lab-progress-track">
-                <div id="admin-prompt-lab-progress-bar" class="admin-prompt-lab-progress-bar"></div>
-              </div>
-            </div>
-          </article>
-        </section>
+          </section>
+        </div>
 
-        <section class="admin-analytics-card admin-prompt-lab-result">
-          <div class="report-card-head">
-            <div>
-              <p class="section-label accent-label">Результат</p>
-              <h3>Сформированные кейсы</h3>
+        <div id="admin-prompt-lab-pane-dialog" class="admin-prompt-lab-pane hidden">
+          <section class="admin-prompt-lab-grid">
+            <article class="admin-analytics-card admin-prompt-lab-form">
+              <div class="report-card-head">
+                <div>
+                  <p class="section-label accent-label">Новый запуск</p>
+                  <h3>Моделирование диалога</h3>
+                </div>
+              </div>
+              <div class="admin-prompt-lab-two">
+                <label class="admin-prompt-lab-field">
+                  <span>Пользователь</span>
+                  <select id="admin-prompt-lab-dialog-user-select"></select>
+                </label>
+                <label class="admin-prompt-lab-field">
+                  <span>Кейс</span>
+                  <select id="admin-prompt-lab-dialog-case-select" class="hidden"></select>
+                  <button id="admin-prompt-lab-dialog-case-picker-button" type="button" class="ghost-button admin-prompt-lab-case-picker-button">Выбрать кейс</button>
+                  <div id="admin-prompt-lab-dialog-case-picker-summary" class="admin-prompt-lab-case-picker-summary">Кейс не выбран</div>
+                  <small id="admin-prompt-lab-dialog-case-hint" class="admin-prompt-lab-case-hint hidden"></small>
+                </label>
+              </div>
+              <div class="admin-prompt-lab-actions">
+                <button id="admin-prompt-lab-dialog-prepare-button" type="button" class="primary-button compact-primary">Подготовить диалог</button>
+                <span id="admin-prompt-lab-dialog-status" class="admin-methodology-save-status hidden"></span>
+              </div>
+              <label class="admin-prompt-lab-field">
+                <span>Источник промта персонализации кейса</span>
+                <select id="admin-prompt-lab-dialog-case-source-select">
+                  <option value="system">Системный промт</option>
+                  <option value="custom">Пользовательский промт</option>
+                </select>
+              </label>
+              <label class="admin-prompt-lab-field">
+                <span>Промт персонализации кейса</span>
+                <textarea id="admin-prompt-lab-dialog-case-prompt-text" rows="10"></textarea>
+              </label>
+              <label class="admin-prompt-lab-field">
+                <span>Источник промта интервьюера</span>
+                <select id="admin-prompt-lab-dialog-source-select">
+                  <option value="system">Системный промт</option>
+                  <option value="custom">Пользовательский промт</option>
+                </select>
+              </label>
+              <label class="admin-prompt-lab-field">
+                <span>Промт интервьюера</span>
+                <textarea id="admin-prompt-lab-dialog-prompt-text" rows="10"></textarea>
+              </label>
+              <div class="admin-prompt-lab-actions">
+                <button id="admin-prompt-lab-dialog-reset-button" type="button" class="ghost-button compact-ghost">Сбросить диалог</button>
+              </div>
+            </article>
+          </section>
+
+          <section class="admin-analytics-card admin-prompt-lab-result">
+            <div class="report-card-head">
+              <div>
+                <p class="section-label accent-label">Результат</p>
+                <h3>Диалог с агентом</h3>
+              </div>
             </div>
-          </div>
-          <div id="admin-prompt-lab-result" class="admin-prompt-lab-result-body">
-            <p class="report-empty-state">Сформируйте кейсы, чтобы увидеть полный набор кейсов пользователя.</p>
-          </div>
-        </section>
+            <div id="admin-prompt-lab-dialog-result" class="admin-prompt-lab-result-body">
+              <p class="report-empty-state">Подготовьте диалог, чтобы увидеть персонализированный кейс, промт интервьюера и ход общения.</p>
+            </div>
+            <div class="admin-prompt-lab-dialog-compose">
+              <label class="admin-prompt-lab-field">
+                <span>Ответ пользователя</span>
+                <textarea id="admin-prompt-lab-dialog-user-message" rows="4" placeholder="Введите ответ пользователя по кейсу..."></textarea>
+              </label>
+              <div class="admin-prompt-lab-actions">
+                <button id="admin-prompt-lab-dialog-send-button" type="button" class="primary-button compact-primary">Отправить ответ</button>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
 
       <dialog id="admin-prompt-lab-case-dialog" class="admin-prompt-lab-case-dialog">
@@ -874,6 +957,19 @@
             <button id="admin-prompt-lab-case-dialog-close" type="submit" class="ghost-button compact-ghost">Готово</button>
           </div>
           <div id="admin-prompt-lab-case-dialog-list" class="admin-prompt-lab-case-dialog-list"></div>
+        </form>
+      </dialog>
+
+      <dialog id="admin-prompt-lab-dialog-case-dialog" class="admin-prompt-lab-case-dialog">
+        <form method="dialog" class="admin-prompt-lab-case-dialog-card">
+          <div class="admin-prompt-lab-case-dialog-head">
+            <div>
+              <p class="section-label accent-label">Выбор кейса</p>
+              <h3>Кейс для моделирования диалога</h3>
+            </div>
+            <button id="admin-prompt-lab-dialog-case-dialog-close" type="submit" class="ghost-button compact-ghost">Готово</button>
+          </div>
+          <div id="admin-prompt-lab-dialog-case-dialog-list" class="admin-prompt-lab-case-dialog-list"></div>
         </form>
       </dialog>
     </section>
@@ -1432,6 +1528,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
-  <script src="/web/app.js?v=20260506-personalization-card-dedupe" defer></script>
+  <script src="/web/app.js?v=20260508-prompt-lab-dialog-counterpart-label-fix" defer></script>
 </body>
 </html>

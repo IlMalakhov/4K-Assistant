@@ -285,6 +285,11 @@ textarea {
     background: #fff;
 }
 
+.admin-prompt-lab-case-option.is-dialog-case {
+    border-color: rgba(219, 39, 119, 0.18);
+    background: linear-gradient(180deg, rgba(253, 242, 248, 0.88) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
 .admin-prompt-lab-case-option input {
     width: 18px;
     height: 18px;
@@ -305,6 +310,76 @@ textarea {
 .admin-prompt-lab-case-option-copy small {
     color: var(--text-muted);
     font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.1);
+    color: #64748b;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.admin-prompt-lab-case-option-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.admin-prompt-lab-case-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: #eef2f7;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.01em;
+}
+
+.admin-prompt-lab-case-badge.dialog {
+    border-color: rgba(244, 114, 182, 0.18);
+    background: rgba(244, 114, 182, 0.12);
+    color: #be185d;
+}
+
+.admin-prompt-lab-case-badge.turn {
+    border-color: rgba(59, 130, 246, 0.16);
+    background: rgba(59, 130, 246, 0.1);
+    color: #1d4ed8;
+}
+
+.admin-prompt-lab-case-hint {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 8px;
+    min-height: 24px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: #eef2f7;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.admin-prompt-lab-case-hint.is-dialog-case {
+    border-color: rgba(244, 114, 182, 0.18);
+    background: rgba(244, 114, 182, 0.12);
+    color: #be185d;
+}
+
+.admin-prompt-lab-case-hint.is-turn-case {
+    border-color: rgba(59, 130, 246, 0.16);
+    background: rgba(59, 130, 246, 0.1);
+    color: #1d4ed8;
 }
 
 .ghost-button {
@@ -6524,6 +6599,35 @@ textarea {
     gap: 20px;
 }
 
+.admin-prompt-lab-tabbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.admin-prompt-lab-tab-button {
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #475569;
+    padding: 10px 14px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.admin-prompt-lab-tab-button.is-active {
+    color: #ffffff;
+    background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+    border-color: transparent;
+}
+
+.admin-prompt-lab-pane {
+    display: grid;
+    gap: 20px;
+}
+
 .admin-prompt-lab-form {
     display: grid;
     gap: 14px;
@@ -6761,6 +6865,45 @@ textarea {
     font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
     font-size: 0.8rem;
     line-height: 1.5;
+}
+
+.admin-prompt-lab-dialog-compose {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.admin-prompt-lab-dialog-history {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-prompt-lab-dialog-message {
+    display: grid;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 10px;
+    background: #ffffff;
+}
+
+.admin-prompt-lab-dialog-message.role-user {
+    background: #f8fafc;
+}
+
+.admin-prompt-lab-dialog-message strong {
+    color: #334155;
+    font-size: 0.82rem;
+}
+
+.admin-prompt-lab-dialog-message pre {
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
 }
 
 @media (max-width: 920px) {

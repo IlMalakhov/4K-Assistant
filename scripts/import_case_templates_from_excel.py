@@ -366,6 +366,28 @@ def infer_artifact_code(value: str) -> str:
     return "stakeholder_message"
 
 
+def infer_interactivity_limits(
+    interactivity_mode: str,
+    recommended_answer_length: str = "",
+    format_control_rules: str = "",
+) -> tuple[int | None, int | None]:
+    normalized = clean_text(interactivity_mode).lower()
+    candidate_text = " ".join(
+        part for part in (clean_text(format_control_rules), clean_text(recommended_answer_length)) if part
+    )
+    numbers = [int(match) for match in re.findall(r"\d+", candidate_text)]
+    upper_bound = max(numbers) if numbers else None
+    if "диалог" in normalized:
+        if upper_bound and upper_bound > 0:
+            return (upper_bound + 1) // 2, upper_bound
+        return 4, 8
+    if normalized == "1 ход":
+        return 2, 4
+    if upper_bound and upper_bound > 0:
+        return (upper_bound + 1) // 2, upper_bound
+    return None, None
+
+
 def load_passports(reader: WorkbookReader) -> dict[str, PassportRecord]:
     rows = reader.read_sheet("Паспорт типов кейсов")
     passports: dict[str, PassportRecord] = {}
@@ -613,6 +635,11 @@ def upsert_passports(connection, passports: dict[str, PassportRecord], registry_
         time_values = [int(value) for value in re.findall(r"\d+", record.estimated_time_text)]
         recommended_min = time_values[0] if time_values else None
         recommended_max = time_values[-1] if time_values else recommended_min
+        max_user_messages, max_total_turns = infer_interactivity_limits(
+            record.interactivity_mode,
+            record.recommended_answer_length,
+            record.format_control_rules,
+        )
         roles = parse_roles(record.roles_text)
         category = infer_type_category(type_code, registry_rows)
         description = "\n".join(part for part in [record.goal, record.context] if part)
@@ -630,6 +657,8 @@ def upsert_passports(connection, passports: dict[str, PassportRecord], registry_
                 recommended_time_min,
                 recommended_time_max,
                 interactivity_mode,
+                max_user_messages,
+                max_total_turns,
                 recommended_answer_length,
                 selection_tags,
                 role_personalization_rules,
@@ -655,6 +684,8 @@ def upsert_passports(connection, passports: dict[str, PassportRecord], registry_
                 recommended_time_min = EXCLUDED.recommended_time_min,
                 recommended_time_max = EXCLUDED.recommended_time_max,
                 interactivity_mode = EXCLUDED.interactivity_mode,
+                max_user_messages = EXCLUDED.max_user_messages,
+                max_total_turns = EXCLUDED.max_total_turns,
                 recommended_answer_length = EXCLUDED.recommended_answer_length,
                 selection_tags = EXCLUDED.selection_tags,
                 role_personalization_rules = EXCLUDED.role_personalization_rules,
@@ -679,6 +710,8 @@ def upsert_passports(connection, passports: dict[str, PassportRecord], registry_
                 recommended_min,
                 recommended_max,
                 record.interactivity_mode,
+                max_user_messages,
+                max_total_turns,
                 record.recommended_answer_length,
                 json.dumps(selection_tags, ensure_ascii=False),
                 record.role_personalization_rules,

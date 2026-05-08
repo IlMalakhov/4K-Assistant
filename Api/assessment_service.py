@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 from dataclasses import dataclass
@@ -54,15 +55,70 @@ class AssessmentTurnReply:
     history_use_count: int = 0
     history_flag: str | None = None
     history_is_new: bool = False
+    pending_auto_finish: bool = False
+    auto_finish_delay_ms: int | None = None
 
 
 class AssessmentService:
     RECENT_CASE_DAYS = 30
     MIN_SESSION_DURATION_MIN = 55
     MAX_SESSION_DURATION_MIN = 70
+    CASE_MESSAGE_LIMIT_REACHED_TEXT = "Лимит сообщений по этому кейсу достигнут. Мы фиксируем ваш ответ и завершаем кейс."
+    CASE_FINISH_CONFIRMATION_TEXT = (
+        "Понял. Если вы хотите завершить этот кейс сейчас, подтвердите это следующим сообщением. "
+        "Если готовы продолжать, просто напишите, что продолжаем."
+    )
+    CASE_CONTINUE_AFTER_CONFIRMATION_TEXT = "Хорошо, продолжаем диалог. Дайте ваш ответ по ситуации в удобной для вас форме."
+    CASE_AUTO_FINISH_DELAY_MS = 2200
+    PROMPT_LAB_PREVIEW_CACHE_TTL_SECONDS = 600
+    PROMPT_LAB_LLM_PERSONALIZATION_TIMEOUT_SECONDS = 45
+
+    def __init__(self) -> None:
+        self._prompt_lab_case_preview_cache: dict[str, tuple[datetime, dict]] = {}
 
     def _utc_now(self) -> datetime:
         return datetime.utcnow()
+
+    def _build_prompt_lab_case_preview_cache_key(
+        self,
+        *,
+        user_id: int,
+        case_id_code: str,
+        use_llm_personalization: bool = True,
+        case_generation_system_prompt: str | None = None,
+        full_name: str | None = None,
+        role_id: int | None = None,
+        position: str | None = None,
+        duties: str | None = None,
+        company_industry: str | None = None,
+        user_profile_override: dict | None = None,
+    ) -> str:
+        payload = {
+            "user_id": int(user_id or 0),
+            "case_id_code": str(case_id_code or "").strip(),
+            "use_llm_personalization": bool(use_llm_personalization),
+            "case_generation_system_prompt": str(case_generation_system_prompt or "").strip(),
+            "full_name": str(full_name or "").strip(),
+            "role_id": int(role_id or 0),
+            "position": str(position or "").strip(),
+            "duties": str(duties or "").strip(),
+            "company_industry": str(company_industry or "").strip(),
+            "user_profile_override": user_profile_override or {},
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+
+    def _get_cached_prompt_lab_case_preview(self, cache_key: str) -> dict | None:
+        cached = self._prompt_lab_case_preview_cache.get(cache_key)
+        if not cached:
+            return None
+        cached_at, payload = cached
+        if (self._utc_now() - cached_at).total_seconds() > self.PROMPT_LAB_PREVIEW_CACHE_TTL_SECONDS:
+            self._prompt_lab_case_preview_cache.pop(cache_key, None)
+            return None
+        return copy.deepcopy(payload)
+
+    def _set_cached_prompt_lab_case_preview(self, cache_key: str, payload: dict) -> None:
+        self._prompt_lab_case_preview_cache[cache_key] = (self._utc_now(), copy.deepcopy(payload))
 
     def _calculate_actual_duration_seconds(self, started_at: datetime | None, completed_at: datetime | None) -> int:
         if started_at is None or completed_at is None:
@@ -74,6 +130,99 @@ class AssessmentService:
         normalized = re.sub(r"[^\wа-яё0-9\s]", "", normalized, flags=re.IGNORECASE)
         return normalized.strip()
 
+    def _is_finish_confirmation_prompt(self, text: str | None) -> bool:
+        return self._normalize_message_for_repeat_check(text) == self._normalize_message_for_repeat_check(
+            self.CASE_FINISH_CONFIRMATION_TEXT
+        )
+
+    def _looks_like_finish_confirmation(self, text: str | None) -> bool:
+        normalized = self._normalize_message_for_repeat_check(text)
+        if not normalized:
+            return False
+        confirmation_markers = (
+            "да",
+            "да завершаем",
+            "завершаем",
+            "подтверждаю",
+            "закрываем кейс",
+            "завершить кейс",
+            "можно завершить",
+            "заканчиваем",
+            "остановимся",
+            "да остановимся",
+        )
+        return any(marker in normalized for marker in confirmation_markers)
+
+    def _looks_like_continue_after_confirmation(self, text: str | None) -> bool:
+        normalized = self._normalize_message_for_repeat_check(text)
+        if not normalized:
+            return False
+        continue_markers = (
+            "нет",
+            "не завершаем",
+            "продолжаем",
+            "давай продолжим",
+            "давайте продолжим",
+            "идем дальше",
+            "идём дальше",
+            "продолжим",
+        )
+        return any(marker in normalized for marker in continue_markers)
+
+    def _looks_like_explicit_finish_request(self, text: str | None) -> bool:
+        normalized = self._normalize_message_for_repeat_check(text)
+        if not normalized:
+            return False
+        explicit_markers = (
+            "хочу завершить кейс",
+            "хочу завершить",
+            "завершить кейс",
+            "заверши кейс",
+            "завершай кейс",
+            "закончить кейс",
+            "закрыть кейс",
+            "не хочу проходить",
+            "не хочу проходить кейс",
+            "не буду проходить",
+            "не буду проходить кейс",
+        )
+        return any(marker in normalized for marker in explicit_markers)
+
+    def _looks_like_defer_or_refusal(self, text: str | None) -> bool:
+        normalized = self._normalize_message_for_repeat_check(text)
+        if not normalized:
+            return False
+        markers = (
+            "позже",
+            "потом",
+            "не хочу отвечать",
+            "не буду отвечать",
+            "не готов отвечать",
+            "не готов сейчас",
+            "давайте позже",
+            "вернусь позже",
+            "пока не отвечу",
+            "не хочу сейчас",
+            "не могу сейчас ответить",
+            "не могу сейчас",
+            "пропущу",
+            "не хочу продолжать",
+            "остановимся на этом",
+            "не знаю",
+            "затрудняюсь ответить",
+            "затрудняюсь",
+            "пропущу этот вопрос",
+            "не готов продолжать",
+            "не хочу дальше",
+            "не хочу обсуждать",
+            "не буду сейчас отвечать",
+            "вернемся позже",
+            "вернёмся позже",
+            "давайте вернемся позже",
+            "давайте вернёмся позже",
+        )
+        return any(marker in normalized for marker in markers)
+
     def _build_non_repeating_follow_up(
         self,
         *,
@@ -81,7 +230,13 @@ class AssessmentService:
         user_message: str,
         dialogue_rows,
         case_skills: list[str],
+        interactivity_mode: str | None = None,
     ) -> str:
+        if deepseek_client._is_dialog_interactivity_mode(interactivity_mode):
+            return deepseek_client._build_dialog_case_reply(
+                user_message=user_message,
+                dialogue=[{"role": row["role"], "content": row["message_text"]} for row in dialogue_rows],
+            )
         previous_assistant_messages = [
             str(row["message_text"] or "").strip()
             for row in dialogue_rows
@@ -135,10 +290,14 @@ class AssessmentService:
             return False
         current_normalized = self._normalize_message_for_repeat_check(current_message)
         current_topics = deepseek_client._infer_follow_up_topics_from_text(current_message)
+        current_dialog_stages = deepseek_client._infer_dialog_reply_stages(current_message)
         recent_assistant_rows = assistant_rows[-3:]
         for row in recent_assistant_rows:
             previous_text = str(row["message_text"] or "")
             if current_normalized == self._normalize_message_for_repeat_check(previous_text):
+                return True
+            previous_dialog_stages = deepseek_client._infer_dialog_reply_stages(previous_text)
+            if current_dialog_stages and previous_dialog_stages and (current_dialog_stages & previous_dialog_stages):
                 return True
             previous_topics = deepseek_client._infer_follow_up_topics_from_text(previous_text)
             if current_topics and previous_topics and (current_topics & previous_topics):
@@ -933,6 +1092,7 @@ class AssessmentService:
         *,
         user_id: int,
         case_id_code: str,
+        use_llm_personalization: bool = True,
         case_generation_system_prompt: str | None = None,
         full_name: str | None = None,
         role_id: int | None = None,
@@ -941,6 +1101,22 @@ class AssessmentService:
         company_industry: str | None = None,
         user_profile_override: dict | None = None,
     ) -> dict:
+        cache_key = self._build_prompt_lab_case_preview_cache_key(
+            user_id=user_id,
+            case_id_code=case_id_code,
+            use_llm_personalization=use_llm_personalization,
+            case_generation_system_prompt=case_generation_system_prompt,
+            full_name=full_name,
+            role_id=role_id,
+            position=position,
+            duties=duties,
+            company_industry=company_industry,
+            user_profile_override=user_profile_override,
+        )
+        cached = self._get_cached_prompt_lab_case_preview(cache_key)
+        if cached is not None:
+            return cached
+
         with get_connection() as connection:
             user_row = connection.execute(
                 """
@@ -1072,26 +1248,70 @@ class AssessmentService:
                 (deepseek_client._get_case_text_build_instruction(case_row["type_code"]) or {}).get("instruction_text") or ""
             ).strip()
             skill_names = [name for name in (case_row["skill_names"] or []) if name]
-            personalized_context, personalized_task = deepseek_client._rewrite_user_case_materials_with_llm(
-                case_id_code=case_row.get("case_code"),
-                case_title=case_row["title"],
+            if use_llm_personalization:
+                try:
+                    personalized_context, personalized_task = deepseek_client._rewrite_user_case_materials_with_llm(
+                        case_id_code=case_row.get("case_code"),
+                        case_title=case_row["title"],
+                        case_type_code=case_row["type_code"],
+                        case_context=base_context,
+                        case_task=base_task,
+                        role_name=role_name,
+                        full_name=effective_full_name,
+                        position=effective_position,
+                        duties=effective_duties,
+                        company_industry=effective_company_industry,
+                        user_profile=user_profile,
+                        facts_data=case_row.get("facts_data"),
+                        trigger_details=case_row.get("trigger_details"),
+                        constraints_text=case_row.get("constraints_text"),
+                        stakes_text=case_row.get("stakes_text"),
+                        base_variant_text=case_row.get("base_variant_text"),
+                        hard_variant_text=case_row.get("hard_variant_text"),
+                        personalization_variables=case_row.get("personalization_variables"),
+                        instruction_text_override=effective_instruction_text,
+                        timeout_sec=self.PROMPT_LAB_LLM_PERSONALIZATION_TIMEOUT_SECONDS,
+                        strict_validation=True,
+                    )
+                except Exception:
+                    _, personalized_context, personalized_task = deepseek_client.build_personalized_case_materials_local_fast(
+                        full_name=effective_full_name,
+                        position=effective_position,
+                        duties=effective_duties,
+                        company_industry=effective_company_industry,
+                        role_name=role_name,
+                        user_profile=user_profile,
+                        case_type_code=case_row["type_code"],
+                        case_title=case_row["title"],
+                        case_context=base_context,
+                        case_task=base_task,
+                        planned_total_duration_min=planned_total_duration_min,
+                        personalization_variables=case_row.get("personalization_variables"),
+                    )
+            else:
+                _, personalized_context, personalized_task = deepseek_client.build_personalized_case_materials_local_fast(
+                    full_name=effective_full_name,
+                    position=effective_position,
+                    duties=effective_duties,
+                    company_industry=effective_company_industry,
+                    role_name=role_name,
+                    user_profile=user_profile,
+                    case_type_code=case_row["type_code"],
+                    case_title=case_row["title"],
+                    case_context=base_context,
+                    case_task=base_task,
+                    planned_total_duration_min=planned_total_duration_min,
+                    personalization_variables=case_row.get("personalization_variables"),
+                )
+            case_quality = deepseek_client._score_case_text_quality(
                 case_type_code=case_row["type_code"],
-                case_context=base_context,
-                case_task=base_task,
-                role_name=role_name,
-                full_name=effective_full_name,
-                position=effective_position,
-                duties=effective_duties,
-                company_industry=effective_company_industry,
+                template_context=base_context,
+                template_task=base_task,
+                generated_context=personalized_context,
+                generated_task=personalized_task,
                 user_profile=user_profile,
-                facts_data=case_row.get("facts_data"),
-                trigger_details=case_row.get("trigger_details"),
-                constraints_text=case_row.get("constraints_text"),
-                stakes_text=case_row.get("stakes_text"),
-                base_variant_text=case_row.get("base_variant_text"),
-                hard_variant_text=case_row.get("hard_variant_text"),
-                personalization_variables=case_row.get("personalization_variables"),
-                instruction_text_override=effective_instruction_text,
+                case_specificity={},
+                existing_contexts=[],
             )
             opening_message = deepseek_client.build_opening_message(
                 case_title=case_row["title"] or "",
@@ -1104,7 +1324,7 @@ class AssessmentService:
                 case_id_code=case_id_code,
             )
 
-        return {
+        result = {
             "user": {
                 "id": user.id,
                 "full_name": effective_full_name,
@@ -1133,12 +1353,16 @@ class AssessmentService:
             "opening_message": opening_message,
             "system_prompt": effective_instruction_text,
             "methodical_context": methodical_context,
+            "case_quality": case_quality,
         }
+        self._set_cached_prompt_lab_case_preview(cache_key, result)
+        return copy.deepcopy(result)
 
     def preview_personalized_case_set(
         self,
         *,
         user_id: int,
+        use_llm_personalization: bool = True,
         case_generation_system_prompt: str | None = None,
         full_name: str | None = None,
         role_id: int | None = None,
@@ -1191,6 +1415,7 @@ class AssessmentService:
             item = self.preview_personalized_case(
                 user_id=user_id,
                 case_id_code=case_row["case_code"],
+                use_llm_personalization=use_llm_personalization,
                 case_generation_system_prompt=case_generation_system_prompt,
                 full_name=full_name,
                 role_id=effective_role_id,
@@ -1218,6 +1443,7 @@ class AssessmentService:
         *,
         user_id: int,
         case_id_codes: list[str],
+        use_llm_personalization: bool = True,
         case_generation_system_prompt: str | None = None,
         full_name: str | None = None,
         role_id: int | None = None,
@@ -1249,6 +1475,7 @@ class AssessmentService:
             item = self.preview_personalized_case(
                 user_id=user_id,
                 case_id_code=case_code,
+                use_llm_personalization=use_llm_personalization,
                 case_generation_system_prompt=case_generation_system_prompt,
                 full_name=full_name,
                 role_id=role_id,
@@ -1269,6 +1496,239 @@ class AssessmentService:
             },
             "case_items": case_items,
             "total_cases": len(case_items),
+        }
+
+    def preview_prompt_lab_dialog(
+        self,
+        *,
+        user_id: int,
+        case_id_code: str,
+        use_llm_personalization: bool = True,
+        case_generation_prompt_text: str | None = None,
+    ) -> dict:
+        artifacts = self.preview_personalized_case(
+            user_id=user_id,
+            case_id_code=case_id_code,
+            use_llm_personalization=use_llm_personalization,
+            case_generation_system_prompt=case_generation_prompt_text,
+        )
+        with get_connection() as connection:
+            case_row = connection.execute(
+                """
+                SELECT
+                    cr.estimated_time_min,
+                    txt.personalization_variables
+                FROM cases_registry cr
+                LEFT JOIN case_texts txt ON txt.cases_registry_id = cr.id
+                WHERE cr.case_id_code = %s
+                ORDER BY txt.version DESC NULLS LAST
+                LIMIT 1
+                """,
+                (case_id_code,),
+            ).fetchone()
+            interviewer_prompt_row = connection.execute(
+                """
+                SELECT prompt_code, prompt_name, prompt_text, prompt_version
+                FROM interviewer_agent_prompts
+                WHERE prompt_code = 'case_follow_up'
+                  AND is_active = TRUE
+                ORDER BY prompt_version DESC, prompt_code ASC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        user_data = artifacts["user"]
+        case_data = artifacts["case"]
+        methodical_context = dict(artifacts.get("methodical_context") or {})
+        planned_total_duration_min = (case_row["estimated_time_min"] if case_row else None) or 10
+        local_case_specificity = deepseek_client._fallback_case_specificity(
+            position=user_data.get("position"),
+            duties=user_data.get("duties"),
+            company_industry=user_data.get("company_industry"),
+            role_name=user_data.get("role_name"),
+            user_profile=user_data.get("user_profile"),
+            case_type_code=case_data.get("type_code"),
+            case_title=case_data.get("title") or "",
+            case_context=artifacts.get("personalized_context") or "",
+            case_task=artifacts.get("personalized_task") or "",
+        )
+        local_personalization_placeholders = deepseek_client._extract_placeholders(
+            "\n".join(
+                filter(
+                    None,
+                    [
+                        artifacts.get("personalized_context") or "",
+                        artifacts.get("personalized_task") or "",
+                        (case_row["personalization_variables"] if case_row else None) or "",
+                    ],
+                )
+            )
+        )
+        local_personalization_map = deepseek_client._fallback_personalization_map(
+            placeholders=local_personalization_placeholders,
+            position=user_data.get("position"),
+            duties=user_data.get("duties"),
+            company_industry=user_data.get("company_industry"),
+            role_name=user_data.get("role_name"),
+            user_profile=user_data.get("user_profile"),
+            planned_total_duration_min=planned_total_duration_min,
+            case_type_code=case_data.get("type_code"),
+            case_title=case_data.get("title") or "",
+            case_context=artifacts.get("personalized_context") or "",
+            case_task=artifacts.get("personalized_task") or "",
+            case_specificity=local_case_specificity,
+        )
+        final_system_prompt = deepseek_client.generate_case_prompt(
+            full_name=user_data.get("full_name"),
+            position=user_data.get("position"),
+            duties=user_data.get("duties"),
+            company_industry=user_data.get("company_industry"),
+            role_name=user_data.get("role_name"),
+            user_profile=user_data.get("user_profile"),
+            case_type_code=case_data.get("type_code"),
+            case_title=case_data.get("title"),
+            case_context=artifacts.get("personalized_context") or "",
+            case_task=artifacts.get("personalized_task") or "",
+            case_skills=case_data.get("skills") or [],
+            case_artifact_name=methodical_context.get("artifact_name"),
+            case_artifact_description=methodical_context.get("artifact_description"),
+            case_required_response_blocks=methodical_context.get("required_response_blocks") or [],
+            case_skill_evidence=methodical_context.get("skill_evidence") or [],
+            case_difficulty_modifiers=methodical_context.get("difficulty_modifiers") or [],
+            planned_total_duration_min=planned_total_duration_min,
+            personalization_variables=(case_row["personalization_variables"] if case_row else None),
+            personalization_map=local_personalization_map,
+            case_specificity=local_case_specificity,
+        )
+        counterpart_opening_message = deepseek_client.build_dialog_counterpart_opening_message(
+            case_title=case_data.get("title") or "",
+            case_context=artifacts.get("personalized_context") or "",
+            case_task=artifacts.get("personalized_task") or "",
+            interactivity_mode=methodical_context.get("interactivity_mode"),
+        )
+        return {
+            "user": user_data,
+            "case": case_data,
+            "personalized_context": artifacts.get("personalized_context") or "",
+            "personalized_task": artifacts.get("personalized_task") or "",
+            "case_generation_prompt_text": str(
+                case_generation_prompt_text
+                or artifacts.get("system_prompt")
+                or ""
+            ).strip() or None,
+            "opening_message": artifacts.get("opening_message") or "",
+            "counterpart_opening_message": counterpart_opening_message or None,
+            "system_prompt": final_system_prompt,
+            "interviewer_prompt_text": interviewer_prompt_row["prompt_text"] if interviewer_prompt_row else None,
+            "interviewer_prompt_name": interviewer_prompt_row["prompt_name"] if interviewer_prompt_row else None,
+            "interviewer_prompt_code": interviewer_prompt_row["prompt_code"] if interviewer_prompt_row else None,
+            "interviewer_prompt_version": interviewer_prompt_row["prompt_version"] if interviewer_prompt_row else None,
+            "methodical_context": methodical_context,
+        }
+
+    def simulate_prompt_lab_dialog_turn(
+        self,
+        *,
+        system_prompt: str,
+        case_title: str,
+        case_skills: list[str],
+        methodical_context: dict | None,
+        dialogue: list[dict],
+        interviewer_prompt_text: str | None,
+        user_message: str,
+    ) -> dict:
+        normalized_user_message = str(user_message or "").strip()
+        if not normalized_user_message:
+            raise ValueError("User message is required")
+
+        normalized_dialogue: list[dict[str, str]] = []
+        for item in dialogue or []:
+            role = str((item or {}).get("role") or "").strip().lower()
+            content = str((item or {}).get("content") or (item or {}).get("message_text") or "").strip()
+            if role not in {"assistant", "user"} or not content:
+                continue
+            normalized_dialogue.append({"role": role, "content": content})
+
+        context = dict(methodical_context or {})
+        is_dialog_case = deepseek_client._is_dialog_interactivity_mode(context.get("interactivity_mode"))
+        last_assistant_message = next(
+            (item["content"] for item in reversed(normalized_dialogue) if item["role"] == "assistant"),
+            "",
+        )
+        awaiting_finish_confirmation = self._is_finish_confirmation_prompt(last_assistant_message)
+
+        if awaiting_finish_confirmation and self._looks_like_finish_confirmation(normalized_user_message):
+            return {
+                "assistant_message": "Понял. Завершаем кейс по вашему подтверждению.",
+                "case_completed": True,
+                "stop_reason": "user_confirmed_finish",
+            }
+
+        if awaiting_finish_confirmation and self._looks_like_continue_after_confirmation(normalized_user_message):
+            return {
+                "assistant_message": self.CASE_CONTINUE_AFTER_CONFIRMATION_TEXT,
+                "case_completed": False,
+                "stop_reason": "continue_after_finish_confirmation",
+            }
+
+        if is_dialog_case and self._looks_like_explicit_finish_request(normalized_user_message):
+            return {
+                "assistant_message": "Понял. Завершаем кейс по вашему запросу.",
+                "case_completed": True,
+                "stop_reason": "user_requested_finish",
+            }
+
+        normalized_dialogue.append({"role": "user", "content": normalized_user_message})
+
+        if is_dialog_case and self._looks_like_defer_or_refusal(normalized_user_message):
+            return {
+                "assistant_message": self.CASE_FINISH_CONFIRMATION_TEXT,
+                "case_completed": False,
+                "stop_reason": "finish_confirmation_requested",
+            }
+
+        interactivity_limits = self._get_interactivity_limits(
+            context.get("interactivity_mode"),
+            max_user_messages=context.get("max_user_messages"),
+            max_total_turns=context.get("max_total_turns"),
+        )
+        max_user_messages = interactivity_limits.get("max_user_messages")
+        user_message_count = sum(1 for item in normalized_dialogue if item["role"] == "user")
+
+        if max_user_messages is not None and user_message_count > max_user_messages:
+            return {
+                "assistant_message": self.CASE_MESSAGE_LIMIT_REACHED_TEXT,
+                "case_completed": True,
+                "stop_reason": "message_limit_reached",
+            }
+
+        turn = deepseek_client.evaluate_case_turn(
+            system_prompt=system_prompt,
+            dialogue=normalized_dialogue,
+            case_title=case_title,
+            case_skills=case_skills,
+            interactivity_mode=context.get("interactivity_mode"),
+            format_control_rules=context.get("format_control_rules"),
+            recommended_answer_length=context.get("recommended_answer_length"),
+            interviewer_prompt_override=interviewer_prompt_text,
+            fallback_user_message=normalized_user_message,
+        )
+        dialogue_rows = [
+            {"role": item["role"], "message_text": item["content"]}
+            for item in normalized_dialogue
+        ]
+        if self._needs_non_repeating_follow_up(turn.assistant_message, dialogue_rows):
+            turn.assistant_message = self._build_non_repeating_follow_up(
+                repeated_message=turn.assistant_message,
+                user_message=normalized_user_message,
+                dialogue_rows=dialogue_rows,
+                case_skills=case_skills,
+                interactivity_mode=context.get("interactivity_mode"),
+            )
+        return {
+            "assistant_message": turn.assistant_message,
+            "case_completed": False,
+            "stop_reason": None,
         }
 
     def _get_existing_session_case_contexts(
@@ -1310,6 +1770,11 @@ class AssessmentService:
             SELECT
                 p.id AS passport_id,
                 p.type_code,
+                p.interactivity_mode,
+                p.max_user_messages,
+                p.max_total_turns,
+                p.recommended_answer_length,
+                p.format_control_rules,
                 a.artifact_name,
                 a.description AS artifact_description
             FROM cases_registry cr
@@ -1324,6 +1789,11 @@ class AssessmentService:
             return {
                 "artifact_name": None,
                 "artifact_description": None,
+                "interactivity_mode": None,
+                "max_user_messages": None,
+                "max_total_turns": None,
+                "recommended_answer_length": None,
+                "format_control_rules": None,
                 "required_response_blocks": [],
                 "skill_evidence": [],
                 "difficulty_modifiers": [],
@@ -1367,6 +1837,11 @@ class AssessmentService:
         return {
             "artifact_name": row["artifact_name"],
             "artifact_description": row["artifact_description"],
+            "interactivity_mode": row["interactivity_mode"],
+            "max_user_messages": row["max_user_messages"],
+            "max_total_turns": row["max_total_turns"],
+            "recommended_answer_length": row["recommended_answer_length"],
+            "format_control_rules": row["format_control_rules"],
             "required_response_blocks": [block["block_name"] for block in blocks if block["block_name"]],
             "skill_evidence": [dict(item) for item in evidence_rows],
             "difficulty_modifiers": [
@@ -1375,6 +1850,25 @@ class AssessmentService:
                 if item["modifier_name"]
             ],
         }
+
+    def _get_interactivity_limits(
+        self,
+        interactivity_mode: str | None,
+        *,
+        max_user_messages: int | None = None,
+        max_total_turns: int | None = None,
+    ) -> dict[str, int | None]:
+        if isinstance(max_user_messages, int) and max_user_messages > 0:
+            return {
+                "max_user_messages": max_user_messages,
+                "max_total_turns": max_total_turns if isinstance(max_total_turns, int) and max_total_turns > 0 else None,
+            }
+        normalized = str(interactivity_mode or "").strip().lower()
+        if normalized == "1 ход":
+            return {"max_user_messages": 2, "max_total_turns": 4}
+        if "диалог" in normalized:
+            return {"max_user_messages": 4, "max_total_turns": 8}
+        return {"max_user_messages": None, "max_total_turns": None}
 
     def _get_latest_system_personalized_case(
         self,
@@ -1644,7 +2138,7 @@ class AssessmentService:
             user_turn_count = self._get_case_user_turn_count(connection, plan.current_session_case_id)
 
             if (
-                message not in {"__timeout__", "__finish_case__"}
+                message not in {"__timeout__", "__finish_case__", "__auto_finish_case__"}
                 and user_turn_count == 0
                 and case_meta["started_at"] is not None
                 and self._is_time_expired(case_meta["started_at"], case_meta["estimated_minutes"])
@@ -1752,6 +2246,195 @@ class AssessmentService:
                     time_expired=False,
                 )
 
+            if message == "__auto_finish_case__":
+                last_assistant_row = connection.execute(
+                    """
+                    SELECT message_text
+                    FROM session_case_messages
+                    WHERE session_case_id = %s
+                      AND role = 'assistant'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (plan.current_session_case_id,),
+                ).fetchone()
+                auto_finish_turn = DeepSeekTurnResult(
+                    assistant_message=str((last_assistant_row or {}).get("message_text") or self.CASE_MESSAGE_LIMIT_REACHED_TEXT),
+                    is_case_complete=True,
+                    result_status="passed",
+                    completion_score=None,
+                    evaluator_summary="",
+                )
+                return self._complete_case_and_continue(
+                    connection=connection,
+                    session_row=session_row,
+                    plan=plan,
+                    turn=auto_finish_turn,
+                    session_code=session_code,
+                    time_expired=False,
+                )
+
+            dialogue_rows_before_user = connection.execute(
+                """
+                SELECT role, message_text
+                FROM session_case_messages
+                WHERE session_case_id = %s
+                ORDER BY id ASC
+                """,
+                (plan.current_session_case_id,),
+            ).fetchall()
+            last_assistant_before_user = next(
+                (str(row["message_text"] or "") for row in reversed(dialogue_rows_before_user) if row["role"] == "assistant"),
+                "",
+            )
+            methodical_context = self._get_case_methodical_context(
+                connection,
+                self._get_case_for_session_case(connection, plan.current_session_case_id),
+            )
+            is_dialog_case = deepseek_client._is_dialog_interactivity_mode(methodical_context.get("interactivity_mode"))
+            awaiting_finish_confirmation = self._is_finish_confirmation_prompt(last_assistant_before_user)
+
+            if is_dialog_case and awaiting_finish_confirmation and self._looks_like_finish_confirmation(message):
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'user', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], message),
+                )
+                dialogue_rows = connection.execute(
+                    """
+                    SELECT role, message_text
+                    FROM session_case_messages
+                    WHERE session_case_id = %s
+                    ORDER BY id ASC
+                    """,
+                    (plan.current_session_case_id,),
+                ).fetchall()
+                prompt_row = connection.execute(
+                    """
+                    SELECT final_prompt_text
+                    FROM session_prompts
+                    WHERE session_case_id = %s
+                      AND prompt_type = 'case_dialog'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (plan.current_session_case_id,),
+                ).fetchone()
+                finish_turn = deepseek_client.build_manual_finish_turn(
+                    system_prompt=prompt_row["final_prompt_text"] if prompt_row else "",
+                    dialogue=[{"role": row["role"], "content": row["message_text"]} for row in dialogue_rows],
+                    case_title=case_meta["title"],
+                    case_skills=self._get_case_skill_names(connection, plan.current_session_case_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'assistant', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], finish_turn.assistant_message),
+                )
+                return self._complete_case_and_continue(
+                    connection=connection,
+                    session_row=session_row,
+                    plan=plan,
+                    turn=finish_turn,
+                    session_code=session_code,
+                    time_expired=False,
+                )
+
+            if is_dialog_case and self._looks_like_explicit_finish_request(message):
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'user', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], message),
+                )
+                dialogue_rows = connection.execute(
+                    """
+                    SELECT role, message_text
+                    FROM session_case_messages
+                    WHERE session_case_id = %s
+                    ORDER BY id ASC
+                    """,
+                    (plan.current_session_case_id,),
+                ).fetchall()
+                prompt_row = connection.execute(
+                    """
+                    SELECT final_prompt_text
+                    FROM session_prompts
+                    WHERE session_case_id = %s
+                      AND prompt_type = 'case_dialog'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (plan.current_session_case_id,),
+                ).fetchone()
+                finish_turn = deepseek_client.build_manual_finish_turn(
+                    system_prompt=prompt_row["final_prompt_text"] if prompt_row else "",
+                    dialogue=[{"role": row["role"], "content": row["message_text"]} for row in dialogue_rows],
+                    case_title=case_meta["title"],
+                    case_skills=self._get_case_skill_names(connection, plan.current_session_case_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'assistant', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], finish_turn.assistant_message),
+                )
+                return self._complete_case_and_continue(
+                    connection=connection,
+                    session_row=session_row,
+                    plan=plan,
+                    turn=finish_turn,
+                    session_code=session_code,
+                    time_expired=False,
+                )
+
+            if is_dialog_case and awaiting_finish_confirmation and self._looks_like_continue_after_confirmation(message):
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'user', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], message),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'assistant', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], self.CASE_CONTINUE_AFTER_CONFIRMATION_TEXT),
+                )
+                connection.commit()
+                return AssessmentTurnReply(
+                    session_code=session_code,
+                    session_id=session_row["id"],
+                    session_case_id=plan.current_session_case_id,
+                    case_title=plan.current_case_title,
+                    case_number=plan.current_case_number,
+                    total_cases=plan.total_cases,
+                    message=self.CASE_CONTINUE_AFTER_CONFIRMATION_TEXT,
+                    case_completed=False,
+                    assessment_completed=False,
+                    result_status=None,
+                    completion_score=None,
+                    evaluator_summary=None,
+                    case_time_limit_minutes=plan.current_case_time_limit_minutes,
+                    planned_case_duration_minutes=plan.current_case_planned_duration_minutes,
+                    case_started_at=plan.current_case_started_at,
+                    case_time_remaining_seconds=self._get_remaining_case_seconds(
+                        plan.current_case_started_at,
+                        plan.current_case_time_limit_minutes,
+                    ),
+                    pending_auto_finish=False,
+                    auto_finish_delay_ms=None,
+                    **history_fields,
+                )
+
             connection.execute(
                 """
                 INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
@@ -1759,6 +2442,40 @@ class AssessmentService:
                 """,
                 (plan.current_session_case_id, session_row["id"], message),
             )
+            if is_dialog_case and self._looks_like_defer_or_refusal(message):
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'assistant', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], self.CASE_FINISH_CONFIRMATION_TEXT),
+                )
+                connection.commit()
+                return AssessmentTurnReply(
+                    session_code=session_code,
+                    session_id=session_row["id"],
+                    session_case_id=plan.current_session_case_id,
+                    case_title=plan.current_case_title,
+                    case_number=plan.current_case_number,
+                    total_cases=plan.total_cases,
+                    message=self.CASE_FINISH_CONFIRMATION_TEXT,
+                    case_completed=False,
+                    assessment_completed=False,
+                    result_status=None,
+                    completion_score=None,
+                    evaluator_summary=None,
+                    case_time_limit_minutes=plan.current_case_time_limit_minutes,
+                    planned_case_duration_minutes=plan.current_case_planned_duration_minutes,
+                    case_started_at=plan.current_case_started_at,
+                    case_time_remaining_seconds=self._get_remaining_case_seconds(
+                        plan.current_case_started_at,
+                        plan.current_case_time_limit_minutes,
+                    ),
+                    pending_auto_finish=False,
+                    auto_finish_delay_ms=None,
+                    **history_fields,
+                )
+
             dialogue_rows = connection.execute(
                 """
                 SELECT role, message_text
@@ -1780,12 +2497,64 @@ class AssessmentService:
                 (plan.current_session_case_id,),
             ).fetchone()
             case_row = self._get_case_for_session_case(connection, plan.current_session_case_id)
+            methodical_context = self._get_case_methodical_context(connection, case_row)
+            interactivity_limits = self._get_interactivity_limits(
+                methodical_context.get("interactivity_mode"),
+                max_user_messages=methodical_context.get("max_user_messages"),
+                max_total_turns=methodical_context.get("max_total_turns"),
+            )
+            user_message_count = sum(1 for row in dialogue_rows if row["role"] == "user")
+            max_user_messages = interactivity_limits.get("max_user_messages")
+
+            if max_user_messages is not None and user_message_count > max_user_messages:
+                auto_finish_turn = DeepSeekTurnResult(
+                    assistant_message=self.CASE_MESSAGE_LIMIT_REACHED_TEXT,
+                    is_case_complete=True,
+                    result_status="passed",
+                    completion_score=None,
+                    evaluator_summary="",
+                )
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'assistant', %s)
+                    """,
+                    (plan.current_session_case_id, session_row["id"], auto_finish_turn.assistant_message),
+                )
+                connection.commit()
+                return AssessmentTurnReply(
+                    session_code=session_code,
+                    session_id=session_row["id"],
+                    session_case_id=plan.current_session_case_id,
+                    case_title=plan.current_case_title,
+                    case_number=plan.current_case_number,
+                    total_cases=plan.total_cases,
+                    message=auto_finish_turn.assistant_message,
+                    case_completed=False,
+                    assessment_completed=False,
+                    result_status=None,
+                    completion_score=None,
+                    evaluator_summary=None,
+                    case_time_limit_minutes=plan.current_case_time_limit_minutes,
+                    planned_case_duration_minutes=plan.current_case_planned_duration_minutes,
+                    case_started_at=plan.current_case_started_at,
+                    case_time_remaining_seconds=self._get_remaining_case_seconds(
+                        plan.current_case_started_at,
+                        plan.current_case_time_limit_minutes,
+                    ),
+                    pending_auto_finish=True,
+                    auto_finish_delay_ms=self.CASE_AUTO_FINISH_DELAY_MS,
+                    **history_fields,
+                )
 
             turn = deepseek_client.evaluate_case_turn(
                 system_prompt=prompt_row["final_prompt_text"] if prompt_row else "",
                 dialogue=[{"role": row["role"], "content": row["message_text"]} for row in dialogue_rows],
                 case_title=case_row["title"],
                 case_skills=self._get_case_skill_names(connection, plan.current_session_case_id),
+                interactivity_mode=methodical_context.get("interactivity_mode"),
+                format_control_rules=methodical_context.get("format_control_rules"),
+                recommended_answer_length=methodical_context.get("recommended_answer_length"),
                 fallback_user_message=message,
             )
 
@@ -1795,6 +2564,7 @@ class AssessmentService:
                     user_message=message,
                     dialogue_rows=dialogue_rows,
                     case_skills=self._get_case_skill_names(connection, plan.current_session_case_id),
+                    interactivity_mode=methodical_context.get("interactivity_mode"),
                 )
 
             connection.execute(
@@ -1805,21 +2575,24 @@ class AssessmentService:
                 (plan.current_session_case_id, session_row["id"], turn.assistant_message),
             )
 
-            assessment_completed = False
-            case_completed = False
-            case_number = plan.current_case_number
-            total_cases = plan.total_cases
-            current_case_title = plan.current_case_title
-            current_session_case_id = plan.current_session_case_id
+            if turn.is_case_complete:
+                return self._complete_case_and_continue(
+                    connection=connection,
+                    session_row=session_row,
+                    plan=plan,
+                    turn=turn,
+                    session_code=session_code,
+                    time_expired=False,
+                )
 
             connection.commit()
             return AssessmentTurnReply(
                 session_code=session_code,
                 session_id=session_row["id"],
-                session_case_id=current_session_case_id,
-                case_title=current_case_title,
-                case_number=case_number,
-                total_cases=total_cases,
+                session_case_id=plan.current_session_case_id,
+                case_title=plan.current_case_title,
+                case_number=plan.current_case_number,
+                total_cases=plan.total_cases,
                 message=turn.assistant_message,
                 case_completed=False,
                 assessment_completed=False,

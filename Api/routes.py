@@ -52,6 +52,10 @@ from Api.schemas import (
     PromptLabCaseOption,
     PromptLabCaseRunRequest,
     PromptLabCaseRunResponse,
+    PromptLabDialoguePreviewRequest,
+    PromptLabDialoguePreviewResponse,
+    PromptLabDialogueTurnRequest,
+    PromptLabDialogueTurnResponse,
     PromptLabSystemCasePreviewResponse,
     PromptLabCaseRunSummary,
     PromptLabDashboard,
@@ -143,6 +147,35 @@ def _extract_admin_personalization_codes(*values: str | None) -> list[str]:
                 seen.add(code)
                 result.append(code)
     return result
+
+
+def _normalize_admin_personalization_payload_items(items: list[AdminMethodologyPersonalizationValueItem] | None) -> list[tuple[str, str | None, str | None, bool]]:
+    result: list[tuple[str, str | None, str | None, bool]] = []
+    seen: set[str] = set()
+    for raw_item in items or []:
+        code = _normalize_admin_personalization_field_code(raw_item.field_code if raw_item else None)
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        label = str(raw_item.field_label or "").strip() or None
+        source_type = str(raw_item.source_type or "").strip() or None
+        is_required = bool(raw_item.is_required)
+        result.append((code, label, source_type, is_required))
+    return result
+
+
+def _build_admin_personalization_variable_string(codes: list[str]) -> str | None:
+    unique_codes: list[str] = []
+    seen: set[str] = set()
+    for code in codes:
+        normalized = _normalize_admin_personalization_field_code(code)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_codes.append(normalized)
+    if not unique_codes:
+        return None
+    return ", ".join("{" + code + "}" for code in unique_codes)
 
 
 def _normalize_phone_digits(value: str | None) -> str:
@@ -1899,6 +1932,17 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
         case_row["constraints_text"],
         case_row["personalization_variables"],
     )
+    personalization_codes = list(
+        dict.fromkeys(
+            [
+                *personalization_codes,
+                *[
+                    _normalize_admin_personalization_field_code(item)
+                    for item in (case_row["personalization_variables"] or "").split(",")
+                ],
+            ]
+        )
+    )
 
     skill_signal_rows = connection.execute(
         """
@@ -2073,6 +2117,11 @@ def _build_admin_methodology_case_detail(connection, case_id_code: str) -> Admin
                     else _humanize_admin_personalization_field_label(code)
                 ),
                 field_value_template=None,
+                description=(
+                    str(personalization_option_map[code]["description"])
+                    if code in personalization_option_map and personalization_option_map[code]["description"]
+                    else None
+                ),
                 source_type=(
                     str(personalization_option_map[code]["source_type"])
                     if code in personalization_option_map and personalization_option_map[code]["source_type"]
@@ -2530,6 +2579,7 @@ def _upsert_admin_methodology_case(
     normalized_scoring_aggregation_rules = (payload.scoring_aggregation_rules or "").strip() or None
     normalized_bad_case_risks = (payload.bad_case_risks or "").strip() or None
     normalized_generation_notes = (payload.generation_notes or "").strip() or None
+    normalized_personalization_items = _normalize_admin_personalization_payload_items(payload.personalization_items)
     passport_row = connection.execute(
         """
         SELECT
@@ -2672,17 +2722,13 @@ def _upsert_admin_methodology_case(
         normalized_constraints_text = (payload.constraints_text or "").strip() or None
         normalized_dialog_turns_hint = (payload.dialog_turns_hint or "").strip() or None
         normalized_stakes_text = (payload.stakes_text or "").strip() or None
-        normalized_personalization_codes = _extract_admin_personalization_codes(
+        normalized_personalization_codes = [item[0] for item in normalized_personalization_items] or _extract_admin_personalization_codes(
             normalized_intro_context,
             normalized_facts_data,
             normalized_task_for_user,
             normalized_constraints_text,
         )
-        normalized_personalization_variables = (
-            ", ".join("{" + code + "}" for code in normalized_personalization_codes)
-            if normalized_personalization_codes
-            else None
-        )
+        normalized_personalization_variables = _build_admin_personalization_variable_string(normalized_personalization_codes)
         normalized_personalization_options = (payload.personalization_options_text or "").strip() or None
         normalized_difficulty_toggles = (payload.difficulty_toggles or "").strip() or None
         normalized_evaluation_notes = (payload.evaluation_notes or "").strip() or None
@@ -2754,17 +2800,13 @@ def _upsert_admin_methodology_case(
         normalized_constraints_text = (payload.constraints_text or "").strip() or None
         normalized_dialog_turns_hint = (payload.dialog_turns_hint or "").strip() or None
         normalized_stakes_text = (payload.stakes_text or "").strip() or None
-        normalized_personalization_codes = _extract_admin_personalization_codes(
+        normalized_personalization_codes = [item[0] for item in normalized_personalization_items] or _extract_admin_personalization_codes(
             normalized_intro_context,
             normalized_facts_data,
             normalized_task_for_user,
             normalized_constraints_text,
         )
-        normalized_personalization_variables = (
-            ", ".join("{" + code + "}" for code in normalized_personalization_codes)
-            if normalized_personalization_codes
-            else None
-        )
+        normalized_personalization_variables = _build_admin_personalization_variable_string(normalized_personalization_codes)
         normalized_personalization_options = (payload.personalization_options_text or "").strip() or None
         normalized_difficulty_toggles = (payload.difficulty_toggles or "").strip() or None
         normalized_evaluation_notes = (payload.evaluation_notes or "").strip() or None
@@ -2920,6 +2962,16 @@ def _build_prompt_lab_dashboard(connection) -> PromptLabDashboard:
         LIMIT 1
         """
     ).fetchone()
+    interviewer_prompt_row = connection.execute(
+        """
+        SELECT prompt_code, prompt_name, prompt_text, prompt_version
+        FROM interviewer_agent_prompts
+        WHERE prompt_code = 'case_follow_up'
+          AND is_active = TRUE
+        ORDER BY prompt_version DESC, prompt_code ASC
+        LIMIT 1
+        """
+    ).fetchone()
     user_rows = connection.execute(
         """
         SELECT
@@ -2947,13 +2999,18 @@ def _build_prompt_lab_dashboard(connection) -> PromptLabDashboard:
             cr.case_id_code,
             cr.title,
             p.type_code,
+            p.interactivity_mode,
+            CASE
+                WHEN LOWER(COALESCE(p.interactivity_mode, '')) LIKE '%%диалог%%' THEN TRUE
+                ELSE FALSE
+            END AS is_dialog_case,
             COALESCE(array_agg(DISTINCT r.name) FILTER (WHERE r.name IS NOT NULL), ARRAY[]::text[]) AS role_names
         FROM cases_registry cr
         JOIN case_type_passports p ON p.id = cr.case_type_passport_id
         LEFT JOIN case_registry_roles crr ON crr.cases_registry_id = cr.id
         LEFT JOIN roles r ON r.id = crr.role_id
         WHERE cr.status = 'ready'
-        GROUP BY cr.case_id_code, cr.title, p.type_code
+        GROUP BY cr.case_id_code, cr.title, p.type_code, p.interactivity_mode
         ORDER BY cr.case_id_code ASC
         LIMIT 200
         """
@@ -2977,6 +3034,10 @@ def _build_prompt_lab_dashboard(connection) -> PromptLabDashboard:
         production_prompt_name=(production_instruction_row["instruction_name"] if production_instruction_row else None),
         production_instruction_code=(production_instruction_row["instruction_code"] if production_instruction_row else None),
         production_instruction_version=(production_instruction_row["version"] if production_instruction_row else None),
+        interviewer_prompt_text=(interviewer_prompt_row["prompt_text"] if interviewer_prompt_row else None),
+        interviewer_prompt_name=(interviewer_prompt_row["prompt_name"] if interviewer_prompt_row else None),
+        interviewer_prompt_code=(interviewer_prompt_row["prompt_code"] if interviewer_prompt_row else None),
+        interviewer_prompt_version=(interviewer_prompt_row["prompt_version"] if interviewer_prompt_row else None),
     )
 
 
@@ -3005,27 +3066,10 @@ def get_prompt_lab_dashboard(request: Request) -> PromptLabDashboard:
 
 @router.post("/admin/prompt-lab/prompts", response_model=PromptLabPromptVersion)
 def create_prompt_lab_prompt(payload: PromptLabPromptCreateRequest, request: Request) -> PromptLabPromptVersion:
-    token = request.cookies.get(SESSION_COOKIE_NAME)
-    current_user = web_session_service.get_user_by_token(token) if token else None
-    name = str(payload.name or "").strip()
-    prompt_text = str(payload.prompt_text or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Prompt name is required")
-    if not prompt_text:
-        raise HTTPException(status_code=400, detail="Prompt text is required")
-    with get_connection() as connection:
-        if not _is_admin_user(connection, current_user):
-            raise HTTPException(status_code=403, detail="Admin access required")
-        row = connection.execute(
-            """
-            INSERT INTO prompt_lab_case_prompts (name, prompt_text, created_by)
-            VALUES (%s, %s, %s)
-            RETURNING id, name, prompt_text, created_by, created_at
-            """,
-            (name, prompt_text, current_user.full_name if current_user else None),
-        ).fetchone()
-        connection.commit()
-    return PromptLabPromptVersion(**dict(row))
+    raise HTTPException(
+        status_code=403,
+        detail="Prompt changes are read-only in the application. Update prompts directly in the database as an Administrator.",
+    )
 
 
 @router.post("/admin/prompt-lab/case-runs", response_model=PromptLabCaseRunResponse)
@@ -3069,6 +3113,48 @@ def create_prompt_lab_case_run(payload: PromptLabCaseRunRequest, request: Reques
     if not selected_case_codes:
         raise HTTPException(status_code=400, detail="At least one case must be selected")
 
+    def _run_case_preview(*, use_llm_personalization: bool) -> dict:
+        if "__all__" in selected_case_codes:
+            return assessment_service.preview_personalized_case_batch(
+                user_id=payload.user_id,
+                case_id_codes=all_case_codes,
+                use_llm_personalization=use_llm_personalization,
+                case_generation_system_prompt=prompt_text,
+                full_name=payload.full_name,
+                role_id=payload.role_id,
+                position=payload.position,
+                duties=payload.duties,
+                company_industry=payload.company_industry,
+                user_profile_override=payload.user_profile,
+                progress_operation_id=operation_id,
+            )
+        if len(selected_case_codes) > 1:
+            return assessment_service.preview_personalized_case_batch(
+                user_id=payload.user_id,
+                case_id_codes=selected_case_codes,
+                use_llm_personalization=use_llm_personalization,
+                case_generation_system_prompt=prompt_text,
+                full_name=payload.full_name,
+                role_id=payload.role_id,
+                position=payload.position,
+                duties=payload.duties,
+                company_industry=payload.company_industry,
+                user_profile_override=payload.user_profile,
+                progress_operation_id=operation_id,
+            )
+        return assessment_service.preview_personalized_case(
+            user_id=payload.user_id,
+            case_id_code=selected_case_codes[0],
+            use_llm_personalization=use_llm_personalization,
+            case_generation_system_prompt=prompt_text,
+            full_name=payload.full_name,
+            role_id=payload.role_id,
+            position=payload.position,
+            duties=payload.duties,
+            company_industry=payload.company_industry,
+            user_profile_override=payload.user_profile,
+        )
+
     try:
         progress_cases: list[tuple[str, str]] = []
         if "__all__" in selected_case_codes:
@@ -3108,18 +3194,7 @@ def create_prompt_lab_case_run(payload: PromptLabCaseRunRequest, request: Reques
                     for index, (code, title) in enumerate(progress_cases, start=1)
                 ],
             )
-            artifacts = assessment_service.preview_personalized_case_batch(
-                user_id=payload.user_id,
-                case_id_codes=all_case_codes,
-                case_generation_system_prompt=prompt_text,
-                full_name=payload.full_name,
-                role_id=payload.role_id,
-                position=payload.position,
-                duties=payload.duties,
-                company_industry=payload.company_industry,
-                user_profile_override=payload.user_profile,
-                progress_operation_id=operation_id,
-            )
+            artifacts = _run_case_preview(use_llm_personalization=True)
         elif len(selected_case_codes) > 1:
             with get_connection() as connection:
                 selected_rows = connection.execute(
@@ -3151,18 +3226,7 @@ def create_prompt_lab_case_run(payload: PromptLabCaseRunRequest, request: Reques
                     for index, (code, title) in enumerate(progress_cases, start=1)
                 ],
             )
-            artifacts = assessment_service.preview_personalized_case_batch(
-                user_id=payload.user_id,
-                case_id_codes=selected_case_codes,
-                case_generation_system_prompt=prompt_text,
-                full_name=payload.full_name,
-                role_id=payload.role_id,
-                position=payload.position,
-                duties=payload.duties,
-                company_industry=payload.company_industry,
-                user_profile_override=payload.user_profile,
-                progress_operation_id=operation_id,
-            )
+            artifacts = _run_case_preview(use_llm_personalization=True)
         else:
             operation_progress_service.begin(
                 operation_id,
@@ -3179,20 +3243,16 @@ def create_prompt_lab_case_run(payload: PromptLabCaseRunRequest, request: Reques
                 title="Формируем кейс",
                 message=f"Генерируем кейс {selected_case_codes[0]}",
             )
-            artifacts = assessment_service.preview_personalized_case(
-                user_id=payload.user_id,
-                case_id_code=selected_case_codes[0],
-                case_generation_system_prompt=prompt_text,
-                full_name=payload.full_name,
-                role_id=payload.role_id,
-                position=payload.position,
-                duties=payload.duties,
-                company_industry=payload.company_industry,
-                user_profile_override=payload.user_profile,
-            )
+            artifacts = _run_case_preview(use_llm_personalization=True)
     except ValueError as exc:
         operation_progress_service.fail(operation_id, message=str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        operation_progress_service.fail(operation_id, message=str(exc))
+        raise HTTPException(
+            status_code=502,
+            detail="DeepSeek не смог персонализировать кейс. Повторите попытку позже.",
+        ) from exc
     except HTTPException as exc:
         operation_progress_service.fail(operation_id, message=str(exc.detail))
         raise
@@ -3232,7 +3292,13 @@ def get_prompt_lab_system_case_preview(
         artifacts = assessment_service.preview_personalized_case(
             user_id=user_id,
             case_id_code=case_id_code,
+            use_llm_personalization=True,
         )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="DeepSeek не смог персонализировать кейс. Повторите попытку позже.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return PromptLabSystemCasePreviewResponse(
@@ -3243,6 +3309,52 @@ def get_prompt_lab_system_case_preview(
         system_personalized_context=artifacts.get("system_personalized_context"),
         system_personalized_task=artifacts.get("system_personalized_task"),
     )
+
+
+@router.post("/admin/prompt-lab/dialog-preview", response_model=PromptLabDialoguePreviewResponse)
+def create_prompt_lab_dialog_preview(payload: PromptLabDialoguePreviewRequest, request: Request) -> PromptLabDialoguePreviewResponse:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    current_user = web_session_service.get_user_by_token(token) if token else None
+    with get_connection() as connection:
+        if not _is_admin_user(connection, current_user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+    try:
+        result = assessment_service.preview_prompt_lab_dialog(
+            user_id=payload.user_id,
+            case_id_code=payload.case_id_code,
+            use_llm_personalization=True,
+            case_generation_prompt_text=payload.case_generation_prompt_text,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="DeepSeek не смог персонализировать кейс. Повторите попытку позже.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return PromptLabDialoguePreviewResponse(**result)
+
+
+@router.post("/admin/prompt-lab/dialog-turn", response_model=PromptLabDialogueTurnResponse)
+def create_prompt_lab_dialog_turn(payload: PromptLabDialogueTurnRequest, request: Request) -> PromptLabDialogueTurnResponse:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    current_user = web_session_service.get_user_by_token(token) if token else None
+    with get_connection() as connection:
+        if not _is_admin_user(connection, current_user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+    try:
+        result = assessment_service.simulate_prompt_lab_dialog_turn(
+            system_prompt=payload.system_prompt,
+            case_title=payload.case_title,
+            case_skills=payload.case_skills,
+            methodical_context=payload.methodical_context,
+            dialogue=payload.dialogue,
+            interviewer_prompt_text=payload.interviewer_prompt_text,
+            user_message=payload.user_message,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return PromptLabDialogueTurnResponse(**result)
 
 
 @router.get("/admin/methodology", response_model=AdminMethodologyResponse)

@@ -17,6 +17,34 @@ DEFAULT_LEVEL_PERCENT_MAP = {
 
 PERSONALIZATION_PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]+)\}")
 
+
+def _extract_interactivity_limits(
+    interactivity_mode: str | None,
+    recommended_answer_length: str | None = None,
+    format_control_rules: str | None = None,
+) -> tuple[int | None, int | None]:
+    normalized_mode = (interactivity_mode or "").strip().lower()
+    candidate_text = " ".join(
+        part.strip() for part in (format_control_rules or "", recommended_answer_length or "") if part and part.strip()
+    )
+    numbers = [int(match) for match in re.findall(r"\d+", candidate_text)]
+    upper_bound = max(numbers) if numbers else None
+
+    if "диалог" in normalized_mode:
+        if upper_bound and upper_bound > 0:
+            max_total_turns = upper_bound
+            max_user_messages = (max_total_turns + 1) // 2
+            return max_user_messages, max_total_turns
+        return 4, 8
+
+    if normalized_mode == "1 ход":
+        return 2, 4
+
+    if upper_bound and upper_bound > 0:
+        return (upper_bound + 1) // 2, upper_bound
+
+    return None, None
+
 DEFAULT_PROFILE_BUILD_INSTRUCTIONS = (
     {
         "instruction_code": "default_profile_build_v1",
@@ -2821,6 +2849,8 @@ def ensure_core_schema() -> None:
                 recommended_time_min INTEGER,
                 recommended_time_max INTEGER,
                 interactivity_mode TEXT,
+                max_user_messages INTEGER,
+                max_total_turns INTEGER,
                 recommended_answer_length TEXT,
                 selection_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
                 role_personalization_rules TEXT,
@@ -3064,6 +3094,8 @@ def ensure_core_schema() -> None:
             """
         )
         connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS interactivity_mode TEXT")
+        connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS max_user_messages INTEGER")
+        connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS max_total_turns INTEGER")
         connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS recommended_answer_length TEXT")
         connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS selection_tags JSONB NOT NULL DEFAULT '[]'::jsonb")
         connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS role_personalization_rules TEXT")
@@ -3071,6 +3103,41 @@ def ensure_core_schema() -> None:
         connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS scoring_aggregation_rules TEXT")
         connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS bad_case_risks TEXT")
         connection.execute("ALTER TABLE case_type_passports ADD COLUMN IF NOT EXISTS generation_notes TEXT")
+        passport_rows = connection.execute(
+            """
+            SELECT
+                id,
+                interactivity_mode,
+                recommended_answer_length,
+                format_control_rules,
+                max_user_messages,
+                max_total_turns
+            FROM case_type_passports
+            """
+        ).fetchall()
+        for row in passport_rows:
+            inferred_user_messages, inferred_total_turns = _extract_interactivity_limits(
+                row["interactivity_mode"],
+                row["recommended_answer_length"],
+                row["format_control_rules"],
+            )
+            if inferred_user_messages is None and inferred_total_turns is None:
+                continue
+            current_user_messages = row["max_user_messages"]
+            current_total_turns = row["max_total_turns"]
+            if (
+                current_user_messages == inferred_user_messages
+                and current_total_turns == inferred_total_turns
+            ):
+                continue
+            connection.execute(
+                """
+                UPDATE case_type_passports
+                SET max_user_messages = %s, max_total_turns = %s
+                WHERE id = %s
+                """,
+                (inferred_user_messages, inferred_total_turns, row["id"]),
+            )
         connection.execute("ALTER TABLE cases_registry ADD COLUMN IF NOT EXISTS stakeholders_text TEXT")
         connection.execute("ALTER TABLE case_texts ADD COLUMN IF NOT EXISTS participants_roles TEXT")
         connection.execute("ALTER TABLE case_texts ADD COLUMN IF NOT EXISTS expected_artifact TEXT")
@@ -3349,6 +3416,19 @@ def ensure_core_schema() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS interviewer_agent_prompts (
+                prompt_code TEXT PRIMARY KEY,
+                prompt_name TEXT NOT NULL,
+                prompt_text TEXT NOT NULL,
+                prompt_version INTEGER NOT NULL DEFAULT 1,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """
+        )
         connection.execute("CREATE INDEX IF NOT EXISTS idx_prompt_lab_case_runs_created_at ON prompt_lab_case_runs(created_at DESC)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_case_type_passports_status ON case_type_passports(status)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_cases_registry_type ON cases_registry(case_type_passport_id)")
@@ -3396,68 +3476,9 @@ def ensure_core_schema() -> None:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_request_path ON system_logs(request_path)")
         connection.execute("ALTER TABLE domain_case_scene_candidates ADD COLUMN IF NOT EXISTS quality_score INTEGER NOT NULL DEFAULT 0")
         connection.execute("ALTER TABLE domain_case_scene_candidates ADD COLUMN IF NOT EXISTS quality_notes JSONB NOT NULL DEFAULT '[]'::jsonb")
-        for instruction in DEFAULT_PROFILE_BUILD_INSTRUCTIONS:
-            connection.execute(
-                """
-                INSERT INTO profile_build_instructions (
-                    instruction_code,
-                    instruction_name,
-                    applies_to_role_code,
-                    applies_to_domain_family,
-                    instruction_text,
-                    priority,
-                    is_active,
-                    version
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, TRUE, 1)
-                ON CONFLICT (instruction_code) DO UPDATE
-                SET
-                    instruction_name = EXCLUDED.instruction_name,
-                    applies_to_role_code = EXCLUDED.applies_to_role_code,
-                    applies_to_domain_family = EXCLUDED.applies_to_domain_family,
-                    priority = EXCLUDED.priority,
-                    updated_at = NOW()
-                """,
-                (
-                    instruction["instruction_code"],
-                    instruction["instruction_name"],
-                    instruction["applies_to_role_code"],
-                    instruction["applies_to_domain_family"],
-                    instruction["instruction_text"],
-                    instruction["priority"],
-                ),
-            )
-        for instruction in DEFAULT_CASE_TEXT_BUILD_INSTRUCTIONS:
-            connection.execute(
-                """
-                INSERT INTO case_text_build_instructions (
-                    instruction_code,
-                    instruction_name,
-                    applies_to_type_code,
-                    structure_mode,
-                    instruction_text,
-                    priority,
-                    is_active,
-                    version
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, TRUE, 1)
-                ON CONFLICT (instruction_code) DO UPDATE
-                SET
-                    instruction_name = EXCLUDED.instruction_name,
-                    applies_to_type_code = EXCLUDED.applies_to_type_code,
-                    structure_mode = EXCLUDED.structure_mode,
-                    priority = EXCLUDED.priority,
-                    updated_at = NOW()
-                """,
-                (
-                    instruction["instruction_code"],
-                    instruction["instruction_name"],
-                    instruction["applies_to_type_code"],
-                    instruction["structure_mode"],
-                    instruction["instruction_text"],
-                    instruction["priority"],
-                ),
-            )
+        # Prompt tables are read-only for the application. The runtime may
+        # create schemas, but prompt contents are managed directly in the DB by
+        # an Administrator and must not be inserted or updated automatically.
         connection.execute(
             """
             ALTER TABLE IF EXISTS session_case_skill_analysis
@@ -4761,104 +4782,9 @@ def ensure_core_schema() -> None:
                     ),
                 )
 
-        agent_prompt_profiles = [
-            {
-                "agent_code": "communication",
-                "agent_name": "Communication Agent",
-                "competency_name": "Коммуникация",
-                "purpose_prompt": "Оценивай, насколько ответ ясен, адресен, согласован с адресатом и завершает коммуникацию понятным следующим шагом.",
-                "rationale_prompt": "В объяснении уровня сначала называй итоговый уровень навыка, затем кратко фиксируй признаки ясности сообщения, согласования и контур следующего шага.",
-                "evidence_prompt": "Ищи формулировки, где пользователь объясняет позицию, адаптирует сообщение под адресата, синхронизирует ожидания и подтверждает договоренность.",
-                "red_flag_prompt": "Считай красными флагами агрессивный тон, уход от ответственности, отсутствие следующего шага и отсутствие вопросов там, где нужно уточнение.",
-            },
-            {
-                "agent_code": "teamwork",
-                "agent_name": "Teamwork Agent",
-                "competency_name": "Командная работа",
-                "purpose_prompt": "Оценивай, как пользователь распределяет роли, вовлекает участников, удерживает совместную работу и сохраняет рабочую безопасность в команде.",
-                "rationale_prompt": "В объяснении уровня подчеркивай распределение ответственности, координацию, поддержку участников и качество командного взаимодействия.",
-                "evidence_prompt": "Ищи формулировки о ролях, подключении коллег, снятии блокеров, контроле взаимодействия и сохранении рабочей атмосферы без обвинений.",
-                "red_flag_prompt": "Считай красными флагами режим «сделаю все сам», игнорирование команды, обвинительный тон и отсутствие распределения ответственности.",
-            },
-            {
-                "agent_code": "creativity",
-                "agent_name": "Creativity Agent",
-                "competency_name": "Креативность",
-                "purpose_prompt": "Оценивай, насколько пользователь предлагает разные подходы, переосмысливает проблему и формулирует проверяемые улучшения, а не один шаблонный ответ.",
-                "rationale_prompt": "В объяснении уровня подчеркивай разнообразие идей, наличие нового угла взгляда, комбинирование подходов и готовность к эксперименту.",
-                "evidence_prompt": "Ищи альтернативы, нестандартные идеи, пилоты, комбинации решений и попытки посмотреть на задачу с другой стороны.",
-                "red_flag_prompt": "Считай красными флагами отсутствие альтернатив, шаблонное мышление и отказ искать новые варианты решения.",
-            },
-            {
-                "agent_code": "critical_thinking",
-                "agent_name": "Critical Thinking Agent",
-                "competency_name": "Критическое мышление",
-                "purpose_prompt": "Оценивай, насколько пользователь опирается на данные, различает варианты, видит риски и критерии выбора, а также проверяет гипотезы и последствия.",
-                "rationale_prompt": "В объяснении уровня подчеркивай работу с фактами, критериями, trade-off, гипотезами и контрольными точками пересмотра решения.",
-                "evidence_prompt": "Ищи ссылки на данные, критерии, риски, ограничения, проверку предположений, прогноз последствий и сравнение вариантов.",
-                "red_flag_prompt": "Считай красными флагами отказ от проверки, игнорирование рисков и бездоказательные решения без критериев и валидации.",
-            },
-        ]
-        for profile in agent_prompt_profiles:
-            connection.execute(
-                """
-                INSERT INTO assessment_agent_prompt_profiles (
-                    agent_code, agent_name, competency_name, purpose_prompt, rationale_prompt,
-                    evidence_prompt, red_flag_prompt, prompt_version, is_active
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, TRUE)
-                ON CONFLICT (agent_code) DO UPDATE
-                SET
-                    agent_name = EXCLUDED.agent_name,
-                    competency_name = EXCLUDED.competency_name,
-                    purpose_prompt = EXCLUDED.purpose_prompt,
-                    rationale_prompt = EXCLUDED.rationale_prompt,
-                    evidence_prompt = EXCLUDED.evidence_prompt,
-                    red_flag_prompt = EXCLUDED.red_flag_prompt,
-                    updated_at = NOW()
-                """,
-                (
-                    profile["agent_code"],
-                    profile["agent_name"],
-                    profile["competency_name"],
-                    profile["purpose_prompt"],
-                    profile["rationale_prompt"],
-                    profile["evidence_prompt"],
-                    profile["red_flag_prompt"],
-                ),
-            )
-
-        agent_prompt_rules = [
-            ("communication", "clarity", "signal", "Проверяй, есть ли ясная формулировка позиции и понятное сообщение без двусмысленности.", 1),
-            ("communication", "alignment", "signal", "Проверяй, синхронизирует ли пользователь ожидания и подтверждает ли договоренности.", 2),
-            ("communication", "next_step", "signal", "Проверяй, завершает ли пользователь коммуникацию следующим шагом и сроком обновления.", 3),
-            ("teamwork", "role_split", "signal", "Проверяй, распределены ли роли и ответственность между участниками.", 1),
-            ("teamwork", "involvement", "signal", "Проверяй, вовлекает ли пользователь нужных участников, а не замыкает все на себе.", 2),
-            ("teamwork", "support", "signal", "Проверяй, есть ли поддержка команды и удержание безопасного рабочего контакта.", 3),
-            ("creativity", "alternatives", "signal", "Проверяй, предлагает ли пользователь несколько разных идей или подходов.", 1),
-            ("creativity", "reframing", "signal", "Проверяй, переосмысливает ли пользователь проблему и ищет ли новый угол зрения.", 2),
-            ("creativity", "experiment", "signal", "Проверяй, предлагает ли пользователь пилот, тест или безопасную форму проверки идеи.", 3),
-            ("critical_thinking", "criteria", "signal", "Проверяй, есть ли критерии выбора и логика сравнения вариантов.", 1),
-            ("critical_thinking", "risk_validation", "signal", "Проверяй, видит ли пользователь риски и способы проверить решение.", 2),
-            ("critical_thinking", "tradeoff", "signal", "Проверяй, понимает ли пользователь цену решения, ограничения и последствия.", 3),
-        ]
-        for agent_code, rule_code, rule_scope, rule_text, display_order in agent_prompt_rules:
-            connection.execute(
-                """
-                INSERT INTO assessment_agent_prompt_rules (
-                    agent_code, rule_code, rule_scope, rule_text, display_order, is_active
-                )
-                VALUES (%s, %s, %s, %s, %s, TRUE)
-                ON CONFLICT (agent_code, rule_code) DO UPDATE
-                SET
-                    rule_scope = EXCLUDED.rule_scope,
-                    rule_text = EXCLUDED.rule_text,
-                    display_order = EXCLUDED.display_order,
-                    is_active = TRUE,
-                    updated_at = NOW()
-                """,
-                (agent_code, rule_code, rule_scope, rule_text, display_order),
-            )
+        # Prompt contents for assessment agents and interviewer are maintained
+        # directly in the database by an Administrator. The application runtime
+        # must not seed or update them automatically.
 
         recompute_case_quality_checks(connection)
         connection.commit()
@@ -4875,3 +4801,19 @@ def get_level_percent_map(connection) -> dict[str, int]:
     for row in rows:
         level_map[str(row["level_code"])] = int(row["percent_value"])
     return level_map
+
+
+def get_active_interviewer_prompt(connection: psycopg.Connection, prompt_code: str) -> str | None:
+    row = connection.execute(
+        """
+        SELECT prompt_text
+        FROM interviewer_agent_prompts
+        WHERE prompt_code = %s
+          AND is_active = TRUE
+        LIMIT 1
+        """,
+        (prompt_code,),
+    ).fetchone()
+    if row is None:
+        return None
+    return str(row["prompt_text"] or "").strip() or None
