@@ -1702,6 +1702,13 @@ class AssessmentService:
                 "stop_reason": "message_limit_reached",
             }
 
+        if str(context.get("interactivity_mode") or "").strip().lower() == "1 ход" and user_message_count >= 1:
+            return {
+                "assistant_message": "Ответ зафиксирован. Можете завершить кейс, когда будете готовы.",
+                "case_completed": False,
+                "stop_reason": "single_turn_no_follow_up",
+            }
+
         turn = deepseek_client.evaluate_case_turn(
             system_prompt=system_prompt,
             dialogue=normalized_dialogue,
@@ -2544,6 +2551,33 @@ class AssessmentService:
                     ),
                     pending_auto_finish=True,
                     auto_finish_delay_ms=self.CASE_AUTO_FINISH_DELAY_MS,
+                    **history_fields,
+                )
+
+            if str(methodical_context.get("interactivity_mode") or "").strip().lower() == "1 ход" and user_message_count >= 1:
+                connection.commit()
+                return AssessmentTurnReply(
+                    session_code=session_code,
+                    session_id=session_row["id"],
+                    session_case_id=plan.current_session_case_id,
+                    case_title=plan.current_case_title,
+                    case_number=plan.current_case_number,
+                    total_cases=plan.total_cases,
+                    message="Ответ зафиксирован. Можете завершить кейс, когда будете готовы.",
+                    case_completed=False,
+                    assessment_completed=False,
+                    result_status=None,
+                    completion_score=None,
+                    evaluator_summary=None,
+                    case_time_limit_minutes=plan.current_case_time_limit_minutes,
+                    planned_case_duration_minutes=plan.current_case_planned_duration_minutes,
+                    case_started_at=plan.current_case_started_at,
+                    case_time_remaining_seconds=self._get_remaining_case_seconds(
+                        plan.current_case_started_at,
+                        plan.current_case_time_limit_minutes,
+                    ),
+                    pending_auto_finish=False,
+                    auto_finish_delay_ms=None,
                     **history_fields,
                 )
 

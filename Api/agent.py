@@ -153,6 +153,9 @@ USER_SELECT_SQL = """
         p.profile_build_trace,
         u.active_profile_id,
         u.phone,
+        u.telegram,
+        u.personal_data_consent_accepted_at,
+        u.personal_data_consent_version,
         u.company_industry
     FROM users u
     LEFT JOIN user_role_profiles p ON p.id = u.active_profile_id
@@ -172,11 +175,13 @@ class ConversationMode(StrEnum):
 
 
 class ConversationStage(StrEnum):
+    ASK_PERSONAL_DATA_CONSENT = "ask_personal_data_consent"
     ASK_POSITION = "ask_position"
     ASK_DUTIES = "ask_duties"
     ASK_ROLE = "ask_role"
     ASK_COMPANY_INDUSTRY = "ask_company_industry"
     ASK_FULL_NAME = "ask_full_name"
+    ASK_TELEGRAM = "ask_telegram"
     COMPLETE = "complete"
 
 
@@ -201,6 +206,9 @@ class ConversationState:
     position: str | None = None
     duties: str | None = None
     selected_role_id: int | None = None
+    telegram: str | None = None
+    consent_version: int | None = None
+    consent_text: str | None = None
     company_industry: str | None = None
     history: list[dict[str, str]] = field(default_factory=list)
 
@@ -251,11 +259,32 @@ class InterviewerAgent:
                     position TEXT NULL,
                     duties TEXT NULL,
                     selected_role_id INTEGER NULL,
+                    telegram TEXT NULL,
+                    consent_version INTEGER NULL,
+                    consent_text TEXT NULL,
                     company_industry TEXT NULL,
                     history_json TEXT NOT NULL DEFAULT '[]',
                     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                 )
+                """
+            )
+            connection.execute(
+                """
+                ALTER TABLE agent_conversation_sessions
+                ADD COLUMN IF NOT EXISTS telegram TEXT NULL
+                """
+            )
+            connection.execute(
+                """
+                ALTER TABLE agent_conversation_sessions
+                ADD COLUMN IF NOT EXISTS consent_version INTEGER NULL
+                """
+            )
+            connection.execute(
+                """
+                ALTER TABLE agent_conversation_sessions
+                ADD COLUMN IF NOT EXISTS consent_text TEXT NULL
                 """
             )
             connection.commit()
@@ -275,11 +304,14 @@ class InterviewerAgent:
                     position,
                     duties,
                     selected_role_id,
+                    telegram,
+                    consent_version,
+                    consent_text,
                     company_industry,
                     history_json,
                     updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (session_id) DO UPDATE SET
                     phone = EXCLUDED.phone,
                     mode = EXCLUDED.mode,
@@ -289,6 +321,9 @@ class InterviewerAgent:
                     position = EXCLUDED.position,
                     duties = EXCLUDED.duties,
                     selected_role_id = EXCLUDED.selected_role_id,
+                    telegram = EXCLUDED.telegram,
+                    consent_version = EXCLUDED.consent_version,
+                    consent_text = EXCLUDED.consent_text,
                     company_industry = EXCLUDED.company_industry,
                     history_json = EXCLUDED.history_json,
                     updated_at = NOW()
@@ -303,6 +338,9 @@ class InterviewerAgent:
                     state.position,
                     state.duties,
                     state.selected_role_id,
+                    state.telegram,
+                    state.consent_version,
+                    state.consent_text,
                     state.company_industry,
                     json.dumps(state.history, ensure_ascii=False),
                 ),
@@ -324,6 +362,9 @@ class InterviewerAgent:
                     position,
                     duties,
                     selected_role_id,
+                    telegram,
+                    consent_version,
+                    consent_text,
                     company_industry,
                     history_json
                 FROM agent_conversation_sessions
@@ -351,6 +392,9 @@ class InterviewerAgent:
             position=row["position"],
             duties=row["duties"],
             selected_role_id=row["selected_role_id"],
+            telegram=row["telegram"],
+            consent_version=row["consent_version"],
+            consent_text=row["consent_text"],
             company_industry=row["company_industry"],
             history=history if isinstance(history, list) else [],
         )
@@ -374,6 +418,72 @@ class InterviewerAgent:
 
     def _normalize_company_industry_fallback(self, company_industry: str | None) -> str | None:
         return normalize_company_industry_fallback(company_industry)
+
+    def normalize_telegram(self, telegram: str | None) -> str | None:
+        raw = str(telegram or "").strip()
+        if not raw:
+            return None
+        normalized = raw.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").strip()
+        if normalized.lower() in {"нет", "none", "no", "-", "не указано", "нет телеграма", "нет telegram"}:
+            return None
+        normalized = normalized.lstrip("@").strip()
+        if not normalized:
+            return None
+        normalized = normalized.replace(" ", "")
+        return f"@{normalized}"
+
+    def _get_active_personal_data_consent(self) -> tuple[int, str, str]:
+        with get_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT version, title, consent_text
+                FROM consent_documents
+                WHERE consent_code = 'personal_data_processing'
+                  AND is_active = TRUE
+                ORDER BY version DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        if row is None:
+            return (
+                1,
+                "Согласие на обработку персональных данных",
+                "Я даю согласие на обработку моих персональных данных для регистрации в системе, проведения ассессмента и формирования индивидуального отчета.",
+            )
+        return int(row["version"] or 1), str(row["title"] or "Согласие на обработку персональных данных"), str(row["consent_text"] or "").strip()
+
+    def _build_personal_data_consent_prompt(self) -> tuple[int, str, str]:
+        version, title, consent_text = self._get_active_personal_data_consent()
+        return version, title, consent_text
+
+    def _build_personal_data_consent_actions(self) -> list[dict[str, str]]:
+        return [
+            {"value": "Согласен", "label": "Согласен"},
+            {"value": "Не согласен", "label": "Не согласен"},
+        ]
+
+    def _is_consent_accepted(self, text: str) -> bool:
+        normalized = self.normalize_text(text)
+        return normalized in {"согласен", "согласна", "да", "принимаю", "подтверждаю", "ok", "okay"}
+
+    def _is_consent_declined(self, text: str) -> bool:
+        normalized = self.normalize_text(text)
+        return normalized in {"не согласен", "не согласна", "не принимаю", "отказываюсь", "нет"}
+
+    def _record_user_personal_data_consent(self, user_id: int, consent_version: int | None, consent_text: str | None) -> UserResponse:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE users
+                SET personal_data_consent_accepted_at = CURRENT_TIMESTAMP,
+                    personal_data_consent_version = %s,
+                    personal_data_consent_text = %s
+                WHERE id = %s
+                """,
+                (consent_version, consent_text, user_id),
+            )
+            connection.commit()
+            return self._load_user_by_id(connection, user_id)
 
     def normalize_company_industry(
         self,
@@ -429,12 +539,46 @@ class InterviewerAgent:
     def _load_selectable_roles(self) -> list[dict]:
         return [role for role in self._load_roles() if role.get("code") in {"linear_employee", "manager", "leader"}]
 
+    def _get_role_description(self, role_code: str | None) -> str:
+        code = str(role_code or "").strip()
+        descriptions = {
+            "linear_employee": (
+                "Это роль исполнителя: вы сами выполняете конкретные задачи по правилам, инструкциям "
+                "или стандартным процессам. Примеры: специалист, инженер, аналитик, бухгалтер, тестировщик."
+            ),
+            "manager": (
+                "Это роль организатора работы: вы координируете людей, задачи, сроки и приоритеты, "
+                "чтобы довести работу до результата. Примеры: тимлид, project manager, product manager, руководитель группы."
+            ),
+            "leader": (
+                "Это роль человека, который задает направление: принимает решения с долгосрочными последствиями, "
+                "ведет изменения и влияет на систему в целом. Примеры: руководитель направления, директор функции, "
+                "руководитель департамента, топ-менеджер."
+            ),
+        }
+        return descriptions.get(code, "")
+
+    def _build_role_selection_guidance(self, *, include_intro: bool = True) -> str:
+        intro = "Выберите вашу роль в системе из списка ниже.\n\n" if include_intro else ""
+        return intro + (
+            "Линейный сотрудник\n"
+            "Это роль исполнителя: вы сами выполняете конкретные задачи по правилам, инструкциям или стандартным процессам. "
+            "Примеры: специалист, инженер, аналитик, бухгалтер, тестировщик.\n\n"
+            "Менеджер\n"
+            "Это роль организатора работы: вы координируете людей, задачи, сроки и приоритеты, чтобы довести работу до результата. "
+            "Примеры: тимлид, project manager, product manager, руководитель группы.\n\n"
+            "Лидер\n"
+            "Это роль человека, который задает направление: принимает решения с долгосрочными последствиями, ведет изменения "
+            "и влияет на систему в целом. Примеры: руководитель направления, директор функции, руководитель департамента, топ-менеджер."
+        )
+
     def _build_role_options(self) -> list[dict[str, str | int]]:
         return [
             {
                 "id": int(role["id"]),
                 "code": str(role["code"]),
                 "name": str(role["name"]),
+                "description": self._get_role_description(role["code"]),
             }
             for role in self._load_selectable_roles()
         ]
@@ -2613,6 +2757,9 @@ class InterviewerAgent:
         *,
         full_name: str,
         phone: str,
+        telegram: str | None,
+        consent_version: int | None,
+        consent_text: str | None,
         position: str | None,
         duties: str | None,
         selected_role_id: int | None,
@@ -2643,19 +2790,25 @@ class InterviewerAgent:
         selected_role_match = self._resolve_selected_role(str(selected_role_id) if selected_role_id is not None else None)
         detected_role_match = self.detect_role(position, duties, normalized_duties)
         role_match = selected_role_match or detected_role_match
+        normalized_telegram = self.normalize_telegram(telegram)
         with get_connection() as connection:
             row = connection.execute(
                 """
                 INSERT INTO users (
-                    full_name, email, phone, job_description, role_id, company_industry
+                    full_name, email, phone, telegram, personal_data_consent_accepted_at,
+                    personal_data_consent_version, personal_data_consent_text,
+                    job_description, role_id, company_industry
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     full_name,
                     generated_email,
                     phone,
+                    normalized_telegram,
+                    consent_version,
+                    consent_text,
                     clean_position,
                     selected_role_match.role_id if selected_role_match else None,
                     company_industry,
@@ -2691,6 +2844,7 @@ class InterviewerAgent:
         duties: str | None,
         selected_role_id: int | None,
         company_industry: str | None,
+        telegram: str | None = None,
         progress_operation_id: str | None = None,
     ) -> tuple[UserResponse, RoleMatch | None]:
         normalization = build_profile_normalization_result(
@@ -2716,12 +2870,14 @@ class InterviewerAgent:
         selected_role_match = self._resolve_selected_role(str(selected_role_id) if selected_role_id is not None else None)
         detected_role_match = self.detect_role(position, duties, normalized_duties)
         role_match = selected_role_match or detected_role_match
+        normalized_telegram = self.normalize_telegram(telegram)
         with get_connection() as connection:
             row = connection.execute(
                 """
                 UPDATE users
                 SET job_description = %s,
                     role_id = %s,
+                    telegram = COALESCE(%s, telegram),
                     company_industry = %s
                 WHERE id = %s
                 RETURNING id
@@ -2729,6 +2885,7 @@ class InterviewerAgent:
                 (
                     clean_position,
                     selected_role_match.role_id if selected_role_match else None,
+                    normalized_telegram,
                     company_industry,
                     user_id,
                 ),
@@ -2758,34 +2915,48 @@ class InterviewerAgent:
     def start(self, phone: str, user: UserResponse | None) -> AgentReply:
         session_id = uuid4().hex
         if user is not None:
+            consent_version, consent_title, consent_text = self._build_personal_data_consent_prompt()
+            consent_missing = user.personal_data_consent_accepted_at is None
             state = ConversationState(
                 session_id=session_id,
                 phone=phone,
                 mode=ConversationMode.EXISTING_USER,
-                stage=ConversationStage.ASK_POSITION,
+                stage=ConversationStage.ASK_PERSONAL_DATA_CONSENT if consent_missing else ConversationStage.ASK_POSITION,
                 user=user,
                 user_id=user.id,
                 full_name=user.full_name,
                 position=user.raw_position or user.job_description,
                 duties=user.raw_duties,
+                telegram=user.telegram,
+                consent_version=consent_version,
+                consent_text=consent_text,
                 company_industry=user.company_industry,
             )
-            reply_text = (
-                f"Пользователь найден: {user.full_name}. "
-                "Нужно ли внести изменения в должность и должностные обязанности? "
-                "Если изменений нет, просто напишите, что профиль актуален или что ничего не изменилось. "
-                "Если изменения есть, отправьте сначала актуальную должность."
-            )
+            if consent_missing:
+                reply_text = (
+                    f"Пользователь найден: {user.full_name}. "
+                    "Пожалуйста, ознакомьтесь с текстом согласия ниже и подтвердите выбор."
+                )
+            else:
+                reply_text = (
+                    f"Пользователь найден: {user.full_name}. "
+                    "Нужно ли внести изменения в должность и должностные обязанности? "
+                    "Если изменений нет, просто напишите, что профиль актуален или что ничего не изменилось. "
+                    "Если изменения есть, отправьте сначала актуальную должность."
+                )
         else:
+            consent_version, consent_title, consent_text = self._build_personal_data_consent_prompt()
             state = ConversationState(
                 session_id=session_id,
                 phone=phone,
                 mode=ConversationMode.NEW_USER,
-                stage=ConversationStage.ASK_FULL_NAME,
+                stage=ConversationStage.ASK_PERSONAL_DATA_CONSENT,
+                consent_version=consent_version,
+                consent_text=consent_text,
             )
             reply_text = (
                 "Пользователь не найден. Давайте зарегистрируем вас. "
-                "Напишите, пожалуйста, ФИО полностью."
+                "Пожалуйста, ознакомьтесь с текстом согласия ниже и подтвердите выбор."
             )
 
         with self._lock:
@@ -2798,6 +2969,9 @@ class InterviewerAgent:
             message=reply_text,
             stage=state.stage,
             completed=False,
+            consent_title=consent_title if state.stage == ConversationStage.ASK_PERSONAL_DATA_CONSENT else None,
+            consent_text=state.consent_text if state.stage == ConversationStage.ASK_PERSONAL_DATA_CONSENT else None,
+            action_options=self._build_personal_data_consent_actions() if state.stage == ConversationStage.ASK_PERSONAL_DATA_CONSENT else None,
             user=user,
             role_options=self._build_role_options() if state.stage == ConversationStage.ASK_ROLE else None,
         )
@@ -2835,8 +3009,12 @@ class InterviewerAgent:
     def _get_missing_profile_stage_for_existing_user(self, user: UserResponse | None) -> ConversationStage | None:
         if user is None:
             return None
+        if user.personal_data_consent_accepted_at is None:
+            return ConversationStage.ASK_PERSONAL_DATA_CONSENT
         if not user.role_id:
             return ConversationStage.ASK_ROLE
+        if not (user.telegram and user.telegram.strip()):
+            return ConversationStage.ASK_TELEGRAM
         if not (user.company_industry and user.company_industry.strip()):
             return ConversationStage.ASK_COMPANY_INDUSTRY
         return None
@@ -2850,13 +3028,79 @@ class InterviewerAgent:
                 completed=True,
             )
 
+        if state.stage == ConversationStage.ASK_PERSONAL_DATA_CONSENT:
+            if self._is_consent_accepted(text):
+                if state.user_id:
+                    state.user = self._record_user_personal_data_consent(state.user_id, state.consent_version, state.consent_text)
+                reply_text = (
+                    f"Спасибо. Согласие зафиксировано.\n\n"
+                    f"Пользователь найден: {state.user.full_name if state.user else 'Пользователь'}. "
+                    "Нужно ли внести изменения в должность и должностные обязанности? "
+                    "Если изменений нет, просто напишите, что профиль актуален или что ничего не изменилось. "
+                    "Если изменения есть, отправьте сначала актуальную должность."
+                )
+                state.stage = ConversationStage.ASK_POSITION
+                state.history.append({"role": "assistant", "content": reply_text})
+                return AgentReply(
+                    session_id=state.session_id,
+                    message=reply_text,
+                    stage=state.stage,
+                    completed=False,
+                    user=state.user,
+                )
+            if self._is_consent_declined(text):
+                state.stage = ConversationStage.COMPLETE
+                reply_text = "Без согласия на обработку персональных данных мы не можем продолжить работу. Если захотите вернуться, начните заново с ввода номера телефона."
+                state.history.append({"role": "assistant", "content": reply_text})
+                return AgentReply(
+                    session_id=state.session_id,
+                    message=reply_text,
+                    stage=state.stage,
+                    completed=True,
+                    blocked=True,
+                    user=state.user,
+                )
+            reply_text = (
+                "Пожалуйста, подтвердите согласие явно. Напишите «Согласен», чтобы продолжить, "
+                "или «Не согласен», чтобы завершить сценарий."
+            )
+            state.history.append({"role": "assistant", "content": reply_text})
+            return AgentReply(
+                session_id=state.session_id,
+                message=reply_text,
+                stage=state.stage,
+                completed=False,
+                consent_title="Согласие на обработку персональных данных",
+                consent_text=state.consent_text,
+                action_options=self._build_personal_data_consent_actions(),
+                user=state.user,
+            )
+
         if _means_no_changes(text):
             missing_stage = self._get_missing_profile_stage_for_existing_user(state.user)
+            if missing_stage == ConversationStage.ASK_PERSONAL_DATA_CONSENT:
+                state.stage = ConversationStage.ASK_PERSONAL_DATA_CONSENT
+                _, consent_title, consent_text = self._build_personal_data_consent_prompt()
+                state.consent_text = consent_text
+                reply_text = (
+                    "Перед продолжением нужно ознакомиться с согласием на обработку персональных данных и подтвердить выбор."
+                )
+                state.history.append({"role": "assistant", "content": reply_text})
+                return AgentReply(
+                    session_id=state.session_id,
+                    message=reply_text,
+                    stage=state.stage,
+                    completed=False,
+                    consent_title=consent_title,
+                    consent_text=state.consent_text,
+                    action_options=self._build_personal_data_consent_actions(),
+                    user=state.user,
+                )
             if missing_stage == ConversationStage.ASK_ROLE:
                 state.stage = ConversationStage.ASK_ROLE
                 reply_text = (
                     "Понял, изменения в должности и обязанностях не требуются. "
-                    "Чтобы продолжить работу с кейсами, выберите вашу роль в системе из списка ниже."
+                    "Чтобы продолжить работу с кейсами, " + self._build_role_selection_guidance(include_intro=False)
                 )
                 state.history.append({"role": "assistant", "content": reply_text})
                 return AgentReply(
@@ -2866,6 +3110,21 @@ class InterviewerAgent:
                     completed=False,
                     user=state.user,
                     role_options=self._build_role_options(),
+                )
+            if missing_stage == ConversationStage.ASK_TELEGRAM:
+                state.stage = ConversationStage.ASK_TELEGRAM
+                reply_text = (
+                    "Понял, изменения в должности и обязанностях не требуются. "
+                    "Осталось указать ваш Telegram. Напишите username, например @username. "
+                    "Если Telegram нет, напишите «нет»."
+                )
+                state.history.append({"role": "assistant", "content": reply_text})
+                return AgentReply(
+                    session_id=state.session_id,
+                    message=reply_text,
+                    stage=state.stage,
+                    completed=False,
+                    user=state.user,
                 )
             if missing_stage == ConversationStage.ASK_COMPANY_INDUSTRY:
                 state.stage = ConversationStage.ASK_COMPANY_INDUSTRY
@@ -2914,10 +3173,7 @@ class InterviewerAgent:
         if state.stage == ConversationStage.ASK_DUTIES:
             state.duties = text
             state.stage = ConversationStage.ASK_ROLE
-            reply_text = (
-                "Спасибо. Теперь выберите вашу роль в системе из списка ниже. "
-                "Можно выбрать только один вариант."
-            )
+            reply_text = "Спасибо. Теперь выберите вашу роль в системе.\n\n" + self._build_role_selection_guidance(include_intro=False)
             state.history.append({"role": "assistant", "content": reply_text})
             return AgentReply(
                 session_id=state.session_id,
@@ -2940,6 +3196,29 @@ class InterviewerAgent:
                     role_options=self._build_role_options(),
                 )
             state.selected_role_id = role_match.role_id
+            existing_telegram = self.normalize_telegram(state.telegram or (state.user.telegram if state.user else None))
+            if not existing_telegram:
+                state.stage = ConversationStage.ASK_TELEGRAM
+                reply_text = (
+                    "Спасибо. Теперь укажите ваш Telegram username, например @username. "
+                    "Если Telegram нет, напишите «нет»."
+                )
+            else:
+                state.stage = ConversationStage.ASK_COMPANY_INDUSTRY
+                reply_text = (
+                    "Спасибо. Теперь укажите сферу деятельности компании, в которой вы работаете. "
+                    "Например: банк, retail, телеком, производство, IT-продукт."
+                )
+            state.history.append({"role": "assistant", "content": reply_text})
+            return AgentReply(
+                session_id=state.session_id,
+                message=reply_text,
+                stage=state.stage,
+                completed=False,
+            )
+
+        if state.stage == ConversationStage.ASK_TELEGRAM:
+            state.telegram = text
             state.stage = ConversationStage.ASK_COMPANY_INDUSTRY
             reply_text = (
                 "Спасибо. Теперь укажите сферу деятельности компании, в которой вы работаете. "
@@ -2959,6 +3238,7 @@ class InterviewerAgent:
             position=state.position,
             duties=state.duties,
             selected_role_id=state.selected_role_id,
+            telegram=state.telegram,
             company_industry=state.company_industry,
             progress_operation_id=progress_operation_id,
         )
@@ -2996,8 +3276,57 @@ class InterviewerAgent:
                 completed=True,
             )
 
+        if state.stage == ConversationStage.ASK_PERSONAL_DATA_CONSENT:
+            if self._is_consent_accepted(text):
+                state.stage = ConversationStage.ASK_FULL_NAME
+                reply_text = "Спасибо. Согласие на обработку персональных данных зафиксировано. Теперь напишите, пожалуйста, ФИО полностью."
+                state.history.append({"role": "assistant", "content": reply_text})
+                return AgentReply(
+                    session_id=state.session_id,
+                    message=reply_text,
+                    stage=state.stage,
+                    completed=False,
+                )
+            if self._is_consent_declined(text):
+                state.stage = ConversationStage.COMPLETE
+                reply_text = "Без согласия на обработку персональных данных мы не можем продолжить регистрацию. Если захотите вернуться, начните заново с ввода номера телефона."
+                state.history.append({"role": "assistant", "content": reply_text})
+                return AgentReply(
+                    session_id=state.session_id,
+                    message=reply_text,
+                    stage=state.stage,
+                    completed=True,
+                    blocked=True,
+                )
+            reply_text = (
+                "Пожалуйста, подтвердите согласие явно. Напишите «Согласен», чтобы продолжить регистрацию, "
+                "или «Не согласен», чтобы завершить сценарий."
+            )
+            state.history.append({"role": "assistant", "content": reply_text})
+            return AgentReply(
+                session_id=state.session_id,
+                message=reply_text,
+                stage=state.stage,
+                completed=False,
+                consent_title="Согласие на обработку персональных данных",
+                consent_text=state.consent_text,
+                action_options=self._build_personal_data_consent_actions(),
+            )
+
         if state.stage == ConversationStage.ASK_FULL_NAME:
             state.full_name = text
+            state.stage = ConversationStage.ASK_TELEGRAM
+            reply_text = "Спасибо. Теперь укажите ваш Telegram username, например @username. Если Telegram нет, напишите «нет»."
+            state.history.append({"role": "assistant", "content": reply_text})
+            return AgentReply(
+                session_id=state.session_id,
+                message=reply_text,
+                stage=state.stage,
+                completed=False,
+            )
+
+        if state.stage == ConversationStage.ASK_TELEGRAM:
+            state.telegram = text
             state.stage = ConversationStage.ASK_POSITION
             reply_text = "Спасибо. Укажите вашу должность."
             state.history.append({"role": "assistant", "content": reply_text})
@@ -3023,10 +3352,7 @@ class InterviewerAgent:
         if state.stage == ConversationStage.ASK_DUTIES:
             state.duties = text
             state.stage = ConversationStage.ASK_ROLE
-            reply_text = (
-                "Отлично. Теперь выберите вашу роль в системе из списка ниже. "
-                "Можно выбрать только один вариант."
-            )
+            reply_text = "Отлично. Теперь выберите вашу роль в системе.\n\n" + self._build_role_selection_guidance(include_intro=False)
             state.history.append({"role": "assistant", "content": reply_text})
             return AgentReply(
                 session_id=state.session_id,
@@ -3066,6 +3392,9 @@ class InterviewerAgent:
         user, role_match = self.create_user(
             full_name=state.full_name or "",
             phone=state.phone,
+            telegram=state.telegram,
+            consent_version=state.consent_version,
+            consent_text=state.consent_text,
             position=state.position,
             duties=state.duties,
             selected_role_id=state.selected_role_id,

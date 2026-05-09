@@ -5,7 +5,11 @@ const PROFILE_NO_CHANGES_MESSAGE = 'Профиль актуален';
 const state = {
   sessionId: null,
   completed: false,
+  isChatSubmitting: false,
   pendingAgentMessage: null,
+  pendingActionOptions: [],
+  pendingConsentTitle: null,
+  pendingConsentText: null,
   pendingUser: null,
   dashboard: null,
   isAdmin: false,
@@ -310,6 +314,7 @@ const phoneForm = document.getElementById('phone-form');
 const phoneInput = document.getElementById('phone-input');
 const authError = document.getElementById('auth-error');
 const messages = document.getElementById('messages');
+const chatConsentDetails = document.getElementById('chat-consent-details');
 const chatRoleOptions = document.getElementById('chat-role-options');
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
@@ -522,6 +527,8 @@ const adminReportDetailAvatar = document.getElementById('admin-report-detail-ava
 const adminReportDetailName = document.getElementById('admin-report-detail-name');
 const adminReportDetailRole = document.getElementById('admin-report-detail-role');
 const adminReportDetailGroup = document.getElementById('admin-report-detail-group');
+const adminReportDetailPhone = document.getElementById('admin-report-detail-phone');
+const adminReportDetailTelegram = document.getElementById('admin-report-detail-telegram');
 const adminReportDetailStatusBadge = document.getElementById('admin-report-detail-status-badge');
 const adminReportDetailProfilePosition = document.getElementById('admin-report-detail-profile-position');
 const adminReportDetailProfileDuties = document.getElementById('admin-report-detail-profile-duties');
@@ -619,6 +626,7 @@ const profileAverageScore = document.getElementById('profile-average-score');
 const profileFullName = document.getElementById('profile-full-name');
 const profileEmail = document.getElementById('profile-email');
 const profilePhone = document.getElementById('profile-phone');
+const profileTelegram = document.getElementById('profile-telegram');
 const profileJobDescription = document.getElementById('profile-job-description');
 const profileCompanyIndustry = document.getElementById('profile-company-industry');
 const profileSaveStatus = document.getElementById('profile-save-status');
@@ -1263,6 +1271,10 @@ const STORAGE_KEYS = {
   completionPending: 'agent4k.completionPending',
   sessionId: 'agent4k.sessionId',
   pendingAgentMessage: 'agent4k.pendingAgentMessage',
+  pendingActionOptions: 'agent4k.pendingActionOptions',
+  pendingConsentTitle: 'agent4k.pendingConsentTitle',
+  pendingConsentText: 'agent4k.pendingConsentText',
+  completed: 'agent4k.completed',
   isNewUserFlow: 'agent4k.isNewUserFlow',
   currentScreen: 'agent4k.currentScreen',
 };
@@ -1309,6 +1321,18 @@ const persistAssessmentContext = () => {
   if (state.pendingAgentMessage) {
     safeStorage.setItem(STORAGE_KEYS.pendingAgentMessage, state.pendingAgentMessage);
   }
+  safeStorage.setItem(STORAGE_KEYS.pendingActionOptions, JSON.stringify(state.pendingActionOptions || []));
+  if (state.pendingConsentTitle) {
+    safeStorage.setItem(STORAGE_KEYS.pendingConsentTitle, state.pendingConsentTitle);
+  } else {
+    safeStorage.removeItem(STORAGE_KEYS.pendingConsentTitle);
+  }
+  if (state.pendingConsentText) {
+    safeStorage.setItem(STORAGE_KEYS.pendingConsentText, state.pendingConsentText);
+  } else {
+    safeStorage.removeItem(STORAGE_KEYS.pendingConsentText);
+  }
+  safeStorage.setItem(STORAGE_KEYS.completed, state.completed ? '1' : '0');
   safeStorage.setItem(STORAGE_KEYS.isNewUserFlow, state.isNewUserFlow ? '1' : '0');
   safeStorage.setItem(STORAGE_KEYS.currentScreen, state.currentScreen || 'auth');
   if (state.pendingUser) {
@@ -1386,6 +1410,10 @@ const restoreAssessmentContext = () => {
     const storedTotalCases = safeStorage.getItem(STORAGE_KEYS.assessmentTotalCases);
     const storedConversationSessionId = safeStorage.getItem(STORAGE_KEYS.sessionId);
     const storedPendingAgentMessage = safeStorage.getItem(STORAGE_KEYS.pendingAgentMessage);
+    const storedPendingActionOptions = safeStorage.getItem(STORAGE_KEYS.pendingActionOptions);
+    const storedPendingConsentTitle = safeStorage.getItem(STORAGE_KEYS.pendingConsentTitle);
+    const storedPendingConsentText = safeStorage.getItem(STORAGE_KEYS.pendingConsentText);
+    const storedCompleted = safeStorage.getItem(STORAGE_KEYS.completed);
     const storedIsNewUserFlow = safeStorage.getItem(STORAGE_KEYS.isNewUserFlow);
     const storedCurrentScreen = safeStorage.getItem(STORAGE_KEYS.currentScreen);
     const storedAssessmentCompletedOnce = safeStorage.getItem(STORAGE_KEYS.assessmentCompletedOnce);
@@ -1455,6 +1483,18 @@ const restoreAssessmentContext = () => {
     }
     if (storedPendingAgentMessage) {
       state.pendingAgentMessage = storedPendingAgentMessage;
+    }
+    if (storedPendingActionOptions) {
+      state.pendingActionOptions = JSON.parse(storedPendingActionOptions);
+    }
+    if (storedPendingConsentTitle) {
+      state.pendingConsentTitle = storedPendingConsentTitle;
+    }
+    if (storedPendingConsentText) {
+      state.pendingConsentText = storedPendingConsentText;
+    }
+    if (storedCompleted) {
+      state.completed = storedCompleted === '1';
     }
     if (storedIsNewUserFlow) {
       state.isNewUserFlow = storedIsNewUserFlow === '1';
@@ -1749,6 +1789,7 @@ const buildProcessingAgentsState = () =>
 const resetChat = () => {
   state.sessionId = null;
   state.completed = false;
+  state.isChatSubmitting = false;
   state.pendingAgentMessage = null;
   state.pendingUser = null;
   state.dashboard = null;
@@ -1762,6 +1803,9 @@ const resetChat = () => {
   state.adminReportsSearch = '';
   state.adminReportsPage = 1;
   state.pendingRoleOptions = [];
+  state.pendingActionOptions = [];
+  state.pendingConsentTitle = null;
+  state.pendingConsentText = null;
   state.pendingNoChangesQuickReply = false;
   state.assessmentSessionCode = null;
   state.assessmentCaseNumber = 0;
@@ -1820,10 +1864,15 @@ const resetChat = () => {
   chatInput.value = '';
   chatInput.disabled = false;
   chatForm.querySelector('button').disabled = false;
+  chatForm.classList.remove('hidden');
   showError(chatError, '');
   showError(authError, '');
   chatRoleOptions.innerHTML = '';
   chatRoleOptions.classList.add('hidden');
+  if (chatConsentDetails) {
+    chatConsentDetails.innerHTML = '';
+    chatConsentDetails.classList.add('hidden');
+  }
   statusCard.classList.add('hidden');
   statusCard.textContent = '';
   hideAllPanels();
@@ -1855,10 +1904,30 @@ const renderChatRoleOptions = () => {
     return;
   }
   const options = Array.isArray(state.pendingRoleOptions) ? state.pendingRoleOptions : [];
+  const actionOptions = Array.isArray(state.pendingActionOptions) ? state.pendingActionOptions : [];
+  const hasCompactActions = actionOptions.length > 0;
   const showNoChangesQuickReply = Boolean(state.pendingNoChangesQuickReply);
   chatRoleOptions.innerHTML = '';
-  if (!options.length && !showNoChangesQuickReply) {
+  chatPanel.classList.toggle('compact-chat-flow', hasCompactActions);
+  chatForm.classList.toggle('hidden', hasCompactActions || state.completed);
+  if (chatConsentDetails) {
+    chatConsentDetails.innerHTML = '';
+    if (state.pendingConsentText) {
+      const details = document.createElement('details');
+      details.className = 'chat-consent-accordion';
+      details.innerHTML =
+        '<summary>' + escapeHtml(state.pendingConsentTitle || 'Текст согласия') + '</summary>' +
+        '<div class="chat-consent-accordion-body"><p>' + escapeHtml(state.pendingConsentText).replace(/\\n/g, '<br>') + '</p></div>';
+      chatConsentDetails.appendChild(details);
+      chatConsentDetails.classList.remove('hidden');
+    } else {
+      chatConsentDetails.classList.add('hidden');
+    }
+  }
+  if (!options.length && !actionOptions.length && !showNoChangesQuickReply) {
     chatRoleOptions.classList.add('hidden');
+    chatPanel.classList.remove('compact-chat-flow');
+    chatForm.classList.toggle('hidden', state.completed);
     return;
   }
 
@@ -1869,6 +1938,11 @@ const renderChatRoleOptions = () => {
     const label = document.createElement('p');
     label.className = 'chat-role-options-label';
     label.textContent = 'Выберите одну роль:';
+    chatRoleOptions.appendChild(label);
+  } else if (actionOptions.length) {
+    const label = document.createElement('p');
+    label.className = 'chat-role-options-label';
+    label.textContent = 'Подтвердите выбор:';
     chatRoleOptions.appendChild(label);
   }
 
@@ -1887,9 +1961,25 @@ const renderChatRoleOptions = () => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'chat-role-option-button';
-    button.textContent = option.name;
+    const title = document.createElement('span');
+    title.className = 'chat-role-option-title';
+    title.textContent = option.name;
+    button.appendChild(title);
     button.addEventListener('click', () => {
       void sendChatMessage(String(option.id));
+    });
+    list.appendChild(button);
+  });
+  actionOptions.forEach((option) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'chat-role-option-button';
+    const title = document.createElement('span');
+    title.className = 'chat-role-option-title';
+    title.textContent = option.label || option.value;
+    button.appendChild(title);
+    button.addEventListener('click', () => {
+      void sendChatMessage(String(option.value), String(option.label || option.value));
     });
     list.appendChild(button);
   });
@@ -1904,8 +1994,9 @@ const openChat = () => {
   hideAllPanels();
   chatPanel.classList.remove('hidden');
   messages.innerHTML = '';
-  chatInput.disabled = false;
-  chatForm.querySelector('button').disabled = false;
+  chatInput.disabled = state.completed || state.isChatSubmitting;
+  chatForm.querySelector('button').disabled = state.completed || state.isChatSubmitting;
+  chatForm.classList.toggle('hidden', state.completed);
   setStatus(state.pendingUser ? { user: state.pendingUser } : {});
   if (
     state.pendingUser &&
@@ -1921,7 +2012,9 @@ const openChat = () => {
     addMessage('bot', state.pendingAgentMessage);
   }
   renderChatRoleOptions();
-  chatInput.focus();
+  if (!state.completed) {
+    chatInput.focus();
+  }
 };
 
 const adminMbtiChartPalette = [
@@ -5240,7 +5333,7 @@ const formatAdminReportDate = (item) => {
 };
 
 const sendChatMessage = async (text, displayText = null) => {
-  if (!state.sessionId || state.completed) {
+  if (!state.sessionId || state.completed || state.isChatSubmitting) {
     return;
   }
   const messageText = String(text || '').trim();
@@ -5257,6 +5350,9 @@ const sendChatMessage = async (text, displayText = null) => {
     : messageText));
   chatInput.value = '';
   showError(chatError, '');
+  state.isChatSubmitting = true;
+  chatInput.disabled = true;
+  chatForm.querySelector('button').disabled = true;
 
   try {
     const operationId = state.isNewUserFlow ? createOperationId() : null;
@@ -5286,17 +5382,27 @@ const sendChatMessage = async (text, displayText = null) => {
     state.pendingUser = data.user || state.pendingUser;
     state.assessmentSessionCode = data.assessment_session_code || state.assessmentSessionCode;
     state.pendingRoleOptions = Array.isArray(data.role_options) ? data.role_options : [];
+    state.pendingActionOptions = Array.isArray(data.action_options) ? data.action_options : [];
+    state.pendingConsentTitle = data.consent_title || null;
+    state.pendingConsentText = data.consent_text || null;
+    state.pendingAgentMessage = data.message || state.pendingAgentMessage;
     setStatus(data.user ? data : {});
     if (state.isNewUserFlow) {
       hideLoader();
     }
     renderChatRoleOptions();
+    persistAssessmentContext();
 
     if (state.completed) {
+      chatForm.classList.add('hidden');
       chatInput.disabled = true;
       chatForm.querySelector('button').disabled = true;
 
       window.setTimeout(() => {
+        if (data.blocked) {
+          returnToStart();
+          return;
+        }
         if (state.isNewUserFlow) {
           openAiWelcome();
           return;
@@ -5306,6 +5412,13 @@ const sendChatMessage = async (text, displayText = null) => {
           openDashboard();
         }
       }, 900);
+    } else {
+      state.isChatSubmitting = false;
+      if (!chatForm.classList.contains('hidden')) {
+      chatInput.disabled = false;
+      chatForm.querySelector('button').disabled = false;
+      chatInput.focus();
+      }
     }
   } catch (error) {
     if (state.isNewUserFlow) {
@@ -5315,6 +5428,12 @@ const sendChatMessage = async (text, displayText = null) => {
       state.pendingNoChangesQuickReply = true;
       safeStorage.setItem(STORAGE_KEYS.pendingNoChangesQuickReply, '1');
       renderChatRoleOptions();
+    }
+    state.isChatSubmitting = false;
+    if (!chatForm.classList.contains('hidden')) {
+      chatInput.disabled = false;
+      chatForm.querySelector('button').disabled = false;
+      chatInput.focus();
     }
     showError(chatError, error.message);
   }
@@ -6026,6 +6145,12 @@ const renderAdminReportDetail = () => {
     adminReportDetailName.textContent = 'Отчет недоступен';
     adminReportDetailRole.textContent = 'Нет данных';
     adminReportDetailGroup.textContent = 'Нет данных';
+    if (adminReportDetailPhone) {
+      adminReportDetailPhone.textContent = 'Телефон не указан';
+    }
+    if (adminReportDetailTelegram) {
+      adminReportDetailTelegram.textContent = 'Telegram не указан';
+    }
     adminReportDetailDate.textContent = 'Без даты';
     adminReportDetailScore.textContent = '0%';
     if (adminReportDetailStatusBadge) {
@@ -6118,6 +6243,12 @@ const renderAdminReportDetail = () => {
   adminReportDetailName.textContent = detail.full_name || 'Пользователь';
   adminReportDetailRole.textContent = sanitizeDisplayRole(detail.role_name || '') || 'Роль не указана';
   adminReportDetailGroup.textContent = sanitizeDisplayMetaText(detail.group_name || '') || 'Группа не указана';
+  if (adminReportDetailPhone) {
+    adminReportDetailPhone.textContent = detail.phone ? 'Телефон: ' + detail.phone : 'Телефон не указан';
+  }
+  if (adminReportDetailTelegram) {
+    adminReportDetailTelegram.textContent = detail.telegram ? 'Telegram: ' + detail.telegram : 'Telegram не указан';
+  }
   if (adminReportDetailStatusBadge) {
     adminReportDetailStatusBadge.textContent = getAdminStatusBadgeLabel(detail.status);
   }
@@ -6602,6 +6733,12 @@ const openAdminReportDetail = async (sessionId) => {
   adminReportDetailName.textContent = 'Загружаем отчет...';
   adminReportDetailRole.textContent = 'Подождите, пожалуйста';
   adminReportDetailGroup.textContent = '';
+  if (adminReportDetailPhone) {
+    adminReportDetailPhone.textContent = '';
+  }
+  if (adminReportDetailTelegram) {
+    adminReportDetailTelegram.textContent = '';
+  }
   adminReportDetailDate.textContent = 'Без даты';
   adminReportDetailScore.textContent = '0%';
   if (adminReportDetailStatusBadge) {
@@ -6644,6 +6781,12 @@ const openAdminReportDetail = async (sessionId) => {
     adminReportDetailName.textContent = 'Не удалось загрузить отчет';
     adminReportDetailRole.textContent = error.message;
     adminReportDetailGroup.textContent = 'Попробуйте открыть запись позже';
+    if (adminReportDetailPhone) {
+      adminReportDetailPhone.textContent = '';
+    }
+    if (adminReportDetailTelegram) {
+      adminReportDetailTelegram.textContent = '';
+    }
     renderAdminSkillRadar([]);
     adminReportDetailInsightTitle.textContent = 'Не удалось загрузить AI insight';
     adminReportDetailInsightText.textContent = error.message;
@@ -7013,6 +7156,7 @@ const renderProfile = () => {
   profileFullName.value = user?.full_name || '';
   profileEmail.value = user?.email || '';
   profilePhone.value = user?.phone || 'Не указан';
+  profileTelegram.value = user?.telegram || '';
   profileJobDescription.value = profilePosition || 'Не указана';
   profileCompanyIndustry.value = sanitizeDisplayMetaText(user?.company_industry || '') || 'Не указана';
 };
@@ -7025,6 +7169,7 @@ const saveProfile = async (options = {}) => {
   }
 
   profileEmail.disabled = true;
+  profileTelegram.disabled = true;
   if (!silent) {
     setProfileStatus('Сохраняем изменения...', '');
   }
@@ -7037,6 +7182,7 @@ const saveProfile = async (options = {}) => {
       },
       body: JSON.stringify({
         email: profileEmail.value.trim() || null,
+        telegram: profileTelegram.value.trim() || null,
         avatar_data_url: state.profileAvatarDraft,
       }),
     });
@@ -7054,6 +7200,7 @@ const saveProfile = async (options = {}) => {
     setProfileStatus(error.message, 'error');
   } finally {
     profileEmail.disabled = false;
+    profileTelegram.disabled = false;
   }
 };
 
@@ -8976,6 +9123,9 @@ phoneForm.addEventListener('submit', async (event) => {
     state.isAdmin = isAdminUserPayload(data.user, Boolean(data.is_admin));
     state.adminDashboard = data.admin_dashboard || null;
     state.pendingRoleOptions = Array.isArray(agent?.role_options) ? agent.role_options : [];
+    state.pendingActionOptions = Array.isArray(agent?.action_options) ? agent.action_options : [];
+    state.pendingConsentTitle = agent?.consent_title || null;
+    state.pendingConsentText = agent?.consent_text || null;
     state.isNewUserFlow = !data.exists;
     state.pendingAgentMessage = data.exists
       ? buildExistingUserAgentMessage(data.user, agent?.message || data.message || '')

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/web/app.css?v=20260508-prompt-lab-dialog-counterpart-label-fix">
+  <link rel="stylesheet" href="/web/app.css?v=20260509-chat-complete-hide">
       <!--Favicons-->
   <link rel="icon" href="/favicons/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png">
@@ -1003,6 +1003,8 @@
                 <strong id="admin-report-detail-name">Пользователь</strong>
                 <span id="admin-report-detail-role">Роль не указана</span>
                 <span id="admin-report-detail-group">Группа не указана</span>
+                <span id="admin-report-detail-phone">Телефон не указан</span>
+                <span id="admin-report-detail-telegram">Telegram не указан</span>
                 <div class="admin-detail-profile-badges">
                   <span class="admin-detail-badge">4K Report</span>
                   <span class="admin-detail-badge muted" id="admin-report-detail-status-badge">Черновик</span>
@@ -1327,6 +1329,13 @@
                 <input id="profile-phone" type="text" readonly>
               </label>
               <label class="profile-field">
+                <span>Telegram</span>
+                <div class="profile-editable-field">
+                  <input id="profile-telegram" type="text" placeholder="@username">
+                  <span class="profile-field-edit-icon" aria-hidden="true">✎</span>
+                </div>
+              </label>
+              <label class="profile-field">
                 <span>Профессия</span>
                 <input id="profile-job-description" type="text" readonly>
               </label>
@@ -1517,6 +1526,7 @@
 
       <div id="status-card" class="status-card hidden"></div>
       <div id="messages" class="messages"></div>
+      <div id="chat-consent-details" class="chat-consent-details hidden"></div>
       <div id="chat-role-options" class="chat-role-options hidden"></div>
 
       <form id="chat-form" class="chat-form">
@@ -1528,6 +1538,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
-  <script src="/web/app.js?v=20260508-prompt-lab-dialog-counterpart-label-fix" defer></script>
+  <script src="/web/app.js?v=20260509-chat-complete-hide" defer></script>
 </body>
 </html>

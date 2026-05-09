@@ -2741,6 +2741,19 @@ def ensure_core_schema() -> None:
     with get_connection() as connection:
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS consent_documents (
+                id SERIAL PRIMARY KEY,
+                consent_code TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                consent_text TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS company_industry TEXT
             """
@@ -2748,7 +2761,50 @@ def ensure_core_schema() -> None:
         connection.execute(
             """
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS telegram TEXT
+            """
+        )
+        connection.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS personal_data_consent_accepted_at TIMESTAMP
+            """
+        )
+        connection.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS personal_data_consent_version INTEGER
+            """
+        )
+        connection.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS personal_data_consent_text TEXT
+            """
+        )
+        connection.execute(
+            """
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS avatar_data_url TEXT
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO consent_documents (
+                consent_code,
+                title,
+                consent_text,
+                version,
+                is_active
+            )
+            VALUES (
+                'personal_data_processing',
+                'Согласие на обработку персональных данных',
+                'Я даю согласие на обработку моих персональных данных для регистрации в системе, проведения ассессмента, формирования индивидуального отчета и дальнейшего сопровождения результатов в рамках сервиса 4K Ассистент.',
+                1,
+                TRUE
+            )
+            ON CONFLICT (consent_code) DO NOTHING
             """
         )
         connection.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS expert_comment TEXT")

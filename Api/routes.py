@@ -398,6 +398,9 @@ USER_SELECT_SQL = """
         p.profile_build_trace,
         u.active_profile_id,
         u.phone,
+        u.telegram,
+        u.personal_data_consent_accepted_at,
+        u.personal_data_consent_version,
         u.company_industry,
         u.avatar_data_url
     FROM users u
@@ -988,6 +991,8 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
             us.expert_contacts,
             us.expert_assessed_at,
             u.full_name,
+            u.phone,
+            u.telegram,
             COALESCE(NULLIF(TRIM(u.company_industry), ''), 'Не указана') AS group_name,
             COALESCE(NULLIF(TRIM(u.job_description), ''), 'Не указана') AS role_name,
             p.raw_position,
@@ -1280,6 +1285,8 @@ def _build_admin_report_detail(connection, session_id: int) -> AdminReportDetail
         session_id=int(session_row["session_id"]),
         user_id=int(session_row["user_id"]),
         full_name=session_row["full_name"] or "Без имени",
+        phone=(str(session_row["phone"]).strip() if session_row["phone"] else None),
+        telegram=(str(session_row["telegram"]).strip() if session_row["telegram"] else None),
         role_name=session_row["role_name"],
         group_name=session_row["group_name"],
         status="Завершено" if session_row["status"] == "completed" else "В процессе" if session_row["status"] == "active" else "Черновик",
@@ -3542,11 +3549,13 @@ def update_user_profile(user_id: int, payload: UserProfileUpdateRequest) -> User
             """
             UPDATE users
             SET email = %s,
+                telegram = %s,
                 avatar_data_url = %s
             WHERE id = %s
             """,
             (
                 payload.email,
+                payload.telegram,
                 avatar_data_url,
                 user_id,
             ),

@@ -23,6 +23,9 @@ class UserResponse(BaseModel):
     role_consistency_comment: str | None = None
     active_profile_id: int | None = None
     phone: str | None = None
+    telegram: str | None = None
+    personal_data_consent_accepted_at: datetime | None = None
+    personal_data_consent_version: int | None = None
     company_industry: str | None = None
     company_context: str | None = None
     profile_metadata: dict | None = None
@@ -82,6 +85,10 @@ class AgentReply(BaseModel):
     message: str
     stage: str
     completed: bool
+    blocked: bool = False
+    consent_title: str | None = None
+    consent_text: str | None = None
+    action_options: list[dict[str, str]] | None = None
     user: UserResponse | None = None
     detected_role_id: int | None = None
     detected_role_code: str | None = None
@@ -611,6 +618,8 @@ class AdminReportDetailResponse(BaseModel):
     session_id: int
     user_id: int
     full_name: str
+    phone: str | None = None
+    telegram: str | None = None
     role_name: str
     group_name: str
     status: str
@@ -833,6 +842,7 @@ class UserProfileSummaryResponse(BaseModel):
 
 class UserProfileUpdateRequest(BaseModel):
     email: str | None = None
+    telegram: str | None = None
     avatar_data_url: str | None = None
 
     @field_validator("email", mode="before")
@@ -851,6 +861,14 @@ class UserProfileUpdateRequest(BaseModel):
         if "@" not in value or "." not in value.split("@")[-1]:
             raise ValueError("Введите корректный email")
         return value
+
+    @field_validator("telegram", mode="before")
+    @classmethod
+    def normalize_telegram(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
 
     @field_validator("avatar_data_url", mode="before")
     @classmethod

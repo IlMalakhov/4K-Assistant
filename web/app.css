@@ -3474,6 +3474,45 @@ textarea {
     gap: 10px;
 }
 
+.chat-consent-details {
+    margin-top: 14px;
+    width: min(100%, 888px);
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.chat-consent-accordion {
+    border: 1px solid rgba(70, 72, 212, 0.14);
+    border-radius: 18px;
+    background: rgba(70, 72, 212, 0.05);
+    overflow: hidden;
+    width: min(100%, 680px);
+}
+
+.chat-consent-accordion summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 14px 16px;
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.chat-consent-accordion summary::-webkit-details-marker {
+    display: none;
+}
+
+.chat-consent-accordion-body {
+    padding: 0 16px 16px;
+    color: var(--text-body);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.chat-consent-accordion-body p {
+    margin: 0;
+}
+
 .chat-role-options-label {
     margin: 0;
     color: var(--text-muted);
@@ -3489,18 +3528,35 @@ textarea {
 
 .chat-role-option-button {
     min-height: 42px;
-    padding: 0 16px;
-    border-radius: 999px;
+    padding: 14px 16px;
+    border-radius: 18px;
     border: 1px solid rgba(70, 72, 212, 0.16);
     background: rgba(70, 72, 212, 0.08);
     color: var(--accent);
     font: inherit;
     font-weight: 600;
+    text-align: left;
     cursor: pointer;
+    display: grid;
+    gap: 6px;
+    width: min(100%, 320px);
     transition:
         transform 0.18s ease,
         background 0.18s ease,
         border-color 0.18s ease;
+}
+
+.chat-role-option-title {
+    color: var(--accent);
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.chat-role-option-description {
+    color: var(--text-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.45;
 }
 
 .chat-role-option-button:hover,
@@ -8070,6 +8126,24 @@ textarea {
     padding: 12px 0 8px;
 }
 
+.chat-panel.compact-chat-flow .messages {
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: none;
+    gap: 12px;
+    padding: 8px 0 0;
+    overflow: visible;
+}
+
+.chat-panel.compact-chat-flow .message {
+    margin-top: 12px;
+}
+
+.chat-panel.compact-chat-flow .chat-consent-details,
+.chat-panel.compact-chat-flow .chat-role-options {
+    margin-top: 8px;
+}
+
 .chat-panel .message {
     position: relative;
     width: fit-content;
@@ -8126,6 +8200,10 @@ textarea {
     background: var(--control-bg-strong);
 }
 
+.chat-panel.compact-chat-flow .chat-form.hidden {
+    display: none;
+}
+
 .chat-panel .chat-form input {
     height: 44px;
     border: 0;
@@ -8153,6 +8231,11 @@ textarea {
 
 .chat-panel .chat-role-options {
     margin-top: 0;
+}
+
+.chat-panel.compact-chat-flow {
+    justify-content: flex-start;
+    align-content: flex-start;
 }
 
 .interview-panel {
