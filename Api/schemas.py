@@ -265,6 +265,7 @@ class PromptLabDialoguePreviewResponse(BaseModel):
     case_generation_prompt_text: str | None = None
     opening_message: str
     counterpart_opening_message: str | None = None
+    is_dialog_case: bool = False
     system_prompt: str
     interviewer_prompt_text: str | None = None
     interviewer_prompt_name: str | None = None
@@ -726,6 +727,7 @@ class AssessmentStartResponse(BaseModel):
     history_use_count: int = 0
     history_flag: str | None = None
     history_is_new: bool = False
+    is_dialog_case: bool = False
     pending_auto_finish: bool = False
     auto_finish_delay_ms: int | None = None
 
@@ -770,6 +772,7 @@ class AssessmentMessageResponse(BaseModel):
     history_use_count: int = 0
     history_flag: str | None = None
     history_is_new: bool = False
+    is_dialog_case: bool = False
     pending_auto_finish: bool = False
     auto_finish_delay_ms: int | None = None
 

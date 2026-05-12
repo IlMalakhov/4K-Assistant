@@ -1,4 +1,4 @@
-const APP_RELEASE = '1.2.3';
+const APP_RELEASE = '1.2.4';
 const PROFILE_NO_CHANGES_LABEL = 'Профиль актуален';
 const PROFILE_NO_CHANGES_MESSAGE = 'Профиль актуален';
 
@@ -3307,6 +3307,12 @@ const getPromptLabDialogMethodicalSummary = (preview) => {
 
 const getPromptLabDialogPreviewCaseCode = (preview) => String(preview?.case?.case_id_code || '').trim();
 
+const isPromptLabDialogPreviewDialogCase = (preview) => (
+  preview?.is_dialog_case === true
+  || isPromptLabDialogCase(preview?.case)
+  || /диалог/i.test(String(preview?.methodical_context?.interactivity_mode || '').trim())
+);
+
 const getPromptLabDialogEffectiveCaseGenerationPromptText = (preview) => {
   const sourceMode = String(adminPromptLabDialogCaseSourceSelect?.value || 'system').trim();
   if (sourceMode === 'custom') {
@@ -3357,10 +3363,7 @@ const getPromptLabDialogHistorySpeakerLabel = (item, preview) => {
   if (item?.role === 'user') {
     return 'Пользователь';
   }
-  if (
-    isPromptLabDialogCase(preview?.case)
-    || /диалог/i.test(String(preview?.methodical_context?.interactivity_mode || '').trim())
-  ) {
+  if (isPromptLabDialogPreviewDialogCase(preview)) {
     return 'Собеседник';
   }
   return 'Агент интервьюер';
@@ -3368,7 +3371,7 @@ const getPromptLabDialogHistorySpeakerLabel = (item, preview) => {
 
 const renderPromptLabDialogueHistory = (history, preview) => (
   '<section class="admin-prompt-lab-output-block">' +
-    '<h4>Диалог</h4>' +
+    '<h4>' + escapeHtml(isPromptLabDialogPreviewDialogCase(preview) ? 'Диалог' : 'Ответ пользователя') + '</h4>' +
     '<div class="admin-prompt-lab-dialog-history">' +
       history.map((item) => (
         '<article class="admin-prompt-lab-dialog-message role-' + escapeHtml(item.role || 'assistant') + '">' +
@@ -3422,7 +3425,7 @@ const renderAdminPromptLabDialogResult = () => {
     renderPromptLabTextBlock(getPromptLabDialogCaseGenerationPromptBlockTitle(), effectiveCaseGenerationPromptText || 'Промт персонализации кейса не задан.') +
     renderPromptLabTextBlock(getPromptLabDialogPromptBlockTitle(), effectivePromptText || 'Промт интервьюера не задан.') +
     renderPromptLabTextBlock('Требования к ответу', getPromptLabDialogMethodicalSummary(preview) || 'Методические требования не заданы.') +
-    renderPromptLabDialogueHistory(history, preview);
+    (history.length ? renderPromptLabDialogueHistory(history, preview) : '');
   if (adminPromptLabDialogSendButton) {
     adminPromptLabDialogSendButton.disabled = state.adminPromptLabDialogRunning || !state.adminPromptLabDialogPrepared || isCompleted;
   }
@@ -3647,18 +3650,20 @@ const prepareAdminPromptLabDialog = async () => {
     });
     const result = await readApiResponse(response, 'Не удалось подготовить моделирование диалога.');
     state.adminPromptLabDialogPreview = result;
-    state.adminPromptLabDialogHistory = [
-      {
-        role: 'assistant',
-        kind: 'opening',
-        content: result.opening_message || '',
-      },
-      {
-        role: 'assistant',
-        kind: 'counterpart_opening',
-        content: result.counterpart_opening_message || '',
-      },
-    ].filter((item) => String(item.content || '').trim());
+    state.adminPromptLabDialogHistory = isPromptLabDialogPreviewDialogCase(result)
+      ? [
+          {
+            role: 'assistant',
+            kind: 'opening',
+            content: result.opening_message || '',
+          },
+          {
+            role: 'assistant',
+            kind: 'counterpart_opening',
+            content: result.counterpart_opening_message || '',
+          },
+        ].filter((item) => String(item.content || '').trim())
+      : [];
     state.adminPromptLabDialogPrepared = true;
     if (adminPromptLabDialogPromptText) {
       if ((adminPromptLabDialogSourceSelect?.value || 'system') === 'system' || !promptLabDialogPromptDirty) {
@@ -3707,11 +3712,14 @@ const sendAdminPromptLabDialogTurn = async () => {
       }),
     });
     const result = await readApiResponse(response, 'Не удалось смоделировать ответ агента.');
-    state.adminPromptLabDialogHistory = [
+    const nextHistory = [
       ...(Array.isArray(state.adminPromptLabDialogHistory) ? state.adminPromptLabDialogHistory : []),
       { role: 'user', content: userMessage },
-      { role: 'assistant', content: result.assistant_message || '' },
     ];
+    if (isPromptLabDialogPreviewDialogCase(preview)) {
+      nextHistory.push({ role: 'assistant', content: result.assistant_message || '' });
+    }
+    state.adminPromptLabDialogHistory = nextHistory;
     if (adminPromptLabDialogUserMessage) {
       adminPromptLabDialogUserMessage.value = '';
     }
@@ -8712,6 +8720,26 @@ const addInterviewHint = (text) => {
   interviewMessages.scrollTop = interviewMessages.scrollHeight;
 };
 
+const renderSingleTurnCaseCard = (text) => {
+  interviewSummary.innerHTML = '';
+  const parsed = parseInterviewAssistantMessage(text);
+
+  if (parsed) {
+    interviewSummary.appendChild(renderInterviewStructuredBlock({
+      label: 'Ситуация',
+      body: normalizeInterviewSituationText(parsed.context) || parsed.context,
+    }));
+    interviewSummary.appendChild(renderInterviewStructuredBlock({
+      label: 'Что нужно сделать',
+      body: parsed.task,
+    }));
+  } else {
+    interviewSummary.textContent = text;
+  }
+
+  interviewSummary.classList.remove('hidden');
+};
+
 const renderInterviewMeta = () => {
   interviewCaseBadge.textContent = 'Кейс ' + state.assessmentCaseNumber + ' из ' + state.assessmentTotalCases;
   interviewCaseTitle.textContent = state.assessmentCaseTitle || 'Кейс';
@@ -8858,6 +8886,7 @@ const handleAssessmentResponse = (data) => {
   const previousCaseKey = state.activeInterviewCaseKey;
   const nextCaseKey = data.session_case_id ? String(data.session_case_id) : null;
   const caseChanged = previousCaseKey && nextCaseKey && previousCaseKey !== nextCaseKey;
+  const isDialogCase = Boolean(data.is_dialog_case);
 
     if (data.case_completed && data.result_status) {
       const completedCaseNumber = caseChanged ? previousCaseNumber : data.case_number;
@@ -8890,6 +8919,9 @@ const handleAssessmentResponse = (data) => {
   if (caseChanged && assistantMessage.includes('\n\nСледующий кейс:\n')) {
     assistantMessage = assistantMessage.split('\n\nСледующий кейс:\n')[1];
   }
+  const suppressAssistantBubble =
+    Boolean(data.pending_auto_finish)
+    && assistantMessage.trim() === 'Ответ зафиксирован. Завершаем кейс автоматически.';
   const incidentTitle = extractInterviewIncidentTitle(assistantMessage);
   if (incidentTitle) {
     state.assessmentCaseTitle = incidentTitle;
@@ -8899,11 +8931,21 @@ const handleAssessmentResponse = (data) => {
   renderCaseProgress(Boolean(data.assessment_completed));
   clearInterviewTimer();
   clearAssessmentAutoFinishTimer();
+  interviewPanel.classList.toggle('single-turn-mode', !isDialogCase);
 
-  addInterviewMessage('assistant', assistantMessage);
+  if (!isDialogCase && assistantMessage && !suppressAssistantBubble) {
+    renderSingleTurnCaseCard(assistantMessage);
+  } else {
+    if (isDialogCase) {
+      interviewSummary.classList.add('hidden');
+      interviewSummary.textContent = '';
+      interviewSummary.innerHTML = '';
+    }
+  }
 
-  interviewSummary.classList.add('hidden');
-  interviewSummary.textContent = '';
+  if (isDialogCase && !suppressAssistantBubble) {
+    addInterviewMessage('assistant', assistantMessage);
+  }
 
   if (data.assessment_completed) {
     interviewCaseStatus.textContent = 'Все кейсы пройдены, результаты сохранены в БД.';
@@ -8927,7 +8969,11 @@ const handleAssessmentResponse = (data) => {
     interviewPanel.classList.remove('completed');
     interviewCompleteActions.classList.add('hidden');
     interviewCaseStatus.textContent = 'Кейс будет автоматически завершен.';
-    interviewFooterText.textContent = 'Показываем итоговое сообщение и затем завершаем кейс.';
+    interviewFooterText.textContent = !isDialogCase
+      ? 'Ответ сохранен. Автоматически завершаем кейс и переходим дальше.'
+      : suppressAssistantBubble
+      ? 'Ответ сохранен. Автоматически завершаем кейс и переходим дальше.'
+      : 'Показываем итоговое сообщение и затем завершаем кейс.';
     const delayMs = Math.max(800, Number(data.auto_finish_delay_ms || 2200));
     state.assessmentAutoFinishTimerId = window.setTimeout(() => {
       state.assessmentAutoFinishTimerId = null;

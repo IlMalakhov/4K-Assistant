@@ -98,7 +98,8 @@ class DeepSeekRoleDecision:
 
 class DeepSeekClient:
     def __init__(self) -> None:
-        self.api_key = settings.deepseek_api_key
+        self.api_keys = list(settings.deepseek_api_keys)
+        self.api_key = self.api_keys[0] if self.api_keys else ""
         self.base_url = settings.deepseek_base_url.rstrip("/")
         self.model = settings.deepseek_model
         self._user_text_template_cache: dict[str, dict[str, Any]] = {}
@@ -109,7 +110,23 @@ class DeepSeekClient:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_keys)
+
+    def _build_deepseek_routing_key(self, routing_key: str | None, messages: list[dict[str, str]]) -> str:
+        if str(routing_key or "").strip():
+            return str(routing_key).strip()
+        try:
+            serialized = json.dumps(messages, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            serialized = repr(messages)
+        return f"messages:{zlib.crc32(serialized.encode('utf-8'))}"
+
+    def _get_deepseek_key_chain(self, routing_key: str | None, messages: list[dict[str, str]]) -> list[str]:
+        if not self.api_keys:
+            return []
+        key_basis = self._build_deepseek_routing_key(routing_key, messages)
+        start_index = zlib.crc32(key_basis.encode("utf-8")) % len(self.api_keys)
+        return [self.api_keys[(start_index + offset) % len(self.api_keys)] for offset in range(len(self.api_keys))]
 
     def _get_interviewer_prompt_text(self, prompt_code: str, fallback_text: str, **format_values: str) -> str:
         stored_text: str | None = None
@@ -414,6 +431,7 @@ class DeepSeekClient:
         messages: list[dict[str, str]],
         temperature: float = 0.3,
         timeout_sec: int = 120,
+        routing_key: str | None = None,
     ) -> str:
         if not self.enabled:
             raise RuntimeError("DeepSeek API key is not configured")
@@ -425,29 +443,37 @@ class DeepSeekClient:
                 "temperature": temperature,
             }
         ).encode("utf-8")
-        req = request.Request(
-            url=f"{self.base_url}/chat/completions",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with request.urlopen(req, timeout=timeout_sec) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except TimeoutError as exc:
-            raise RuntimeError("DeepSeek request timed out") from exc
-        except error.URLError as exc:
-            raise RuntimeError(f"DeepSeek request failed: {exc}") from exc
+        last_error: Exception | None = None
+        for api_key in self._get_deepseek_key_chain(routing_key, messages):
+            req = request.Request(
+                url=f"{self.base_url}/chat/completions",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                method="POST",
+            )
+            try:
+                with request.urlopen(req, timeout=timeout_sec) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                return body["choices"][0]["message"]["content"]
+            except TimeoutError as exc:
+                last_error = RuntimeError("DeepSeek request timed out")
+            except error.HTTPError as exc:
+                last_error = RuntimeError(f"DeepSeek request failed with HTTP {exc.code}")
+            except error.URLError as exc:
+                last_error = RuntimeError(f"DeepSeek request failed: {exc}")
 
-        return body["choices"][0]["message"]["content"]
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("DeepSeek request failed: no available API keys")
 
     def generate_case_prompt(
         self,
         *,
         full_name: str | None,
+        user_identifier: str | None = None,
         position: str | None,
         duties: str | None,
         company_industry: str | None,
@@ -1204,6 +1230,11 @@ class DeepSeekClient:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
+                routing_key=(
+                    f"user:{user_identifier}"
+                    if str(user_identifier or "").strip()
+                    else f"profile:{full_name or ''}|{position or ''}|{company_industry or ''}"
+                ),
             )
             parsed = self._parse_json(raw)
             values = parsed.get("values") if isinstance(parsed, dict) else None
@@ -1427,6 +1458,76 @@ class DeepSeekClient:
             parts.append(f"Что нужно сделать:\n{clean_task}")
         return "\n\n".join(part for part in parts if part).strip()
 
+    def _resolve_dialog_counterpart_role(
+        self,
+        *,
+        case_title: str,
+        case_context: str,
+        case_task: str,
+    ) -> str:
+        task_text = cleanup_case_text(case_task).lower()
+        combined_text = cleanup_case_text("\n".join((case_task, case_context, case_title))).lower()
+
+        if any(
+            token in task_text
+            for token in (
+                "с коллег",
+                "коллегой",
+                "коллега",
+                "со специалистом",
+                "специалистом",
+                "специалист первой линии",
+                "первой линии",
+                "личный разговор",
+                "сложный разговор 1:1",
+                "разговор 1:1",
+                "вторая линия",
+                "второй линии",
+                "смежной команды",
+                "смежной линии",
+                "смежным коллегой",
+            )
+        ):
+            return "peer"
+
+        if any(token in task_text for token in ("с сотрудник", "сотрудником", "подчиненн", "подчинён", "новичк")):
+            return "employee"
+
+        if any(token in task_text for token in ("с руководител", "руководителем", "лидером", "менеджером")):
+            return "manager"
+
+        if any(token in task_text for token in ("стейкхолдер", "смежн", "согласовать", "договориться со смежной")):
+            return "stakeholder"
+
+        if any(
+            token in task_text
+            for token in (
+                "ответьте пользователю",
+                "ответить пользователю",
+                "ответ пользователю",
+                "ответьте клиенту",
+                "ответить клиенту",
+                "диалог с клиент",
+                "разговор с клиент",
+                "разговор с пользовател",
+                "разговор с заказчик",
+                "ответ в рабочем чате",
+            )
+        ):
+            return "client"
+
+        if any(token in combined_text for token in ("коллег", "смен", "вторая линия", "смежн")):
+            return "peer"
+        if any(token in combined_text for token in ("сотрудник", "подчиненн", "подчинён", "новичк", "развивающ")):
+            return "employee"
+        if any(token in combined_text for token in ("руковод", "лидер")):
+            return "manager"
+        if any(token in combined_text for token in ("стейкхолдер", "смежная сторона", "смежный отдел", "смежная команда")):
+            return "stakeholder"
+        if any(token in combined_text for token in ("клиент", "пользоват", "заказчик", "заявител")):
+            return "client"
+        return "generic"
+
     def build_dialog_counterpart_opening_message(
         self,
         *,
@@ -1455,7 +1556,35 @@ class DeepSeekClient:
                 return "Какое решение вы предложите по этой ситуации и почему начнете именно с него?"
             return "Как вы начнете действовать в этой ситуации?"
 
+        counterpart_role = self._resolve_dialog_counterpart_role(
+            case_title=case_title,
+            case_context=case_context,
+            case_task=case_task,
+        )
         quote_match = re.search(r"[«\"]([^»\"]{12,280})[»\"]", source_text)
+        if counterpart_role == "client" and quote_match:
+            return cleanup_case_text(quote_match.group(1)).strip()
+
+        if counterpart_role == "peer":
+            return (
+                "Да, вижу, что между нами как коллегами по этой передаче уже накопилось напряжение. "
+                "Давай спокойно разберем: что именно в этой ситуации для тебя стало самым проблемным?"
+            )
+        if counterpart_role == "employee":
+            return (
+                "Я готов обсудить ситуацию спокойно и по делу. "
+                "Скажите прямо: что именно сейчас вы хотите от меня прояснить в первую очередь?"
+            )
+        if counterpart_role == "manager":
+            return (
+                "Давайте обсудим это предметно. "
+                "Что именно в текущей ситуации вы считаете главным вопросом для договоренности?"
+            )
+        if counterpart_role == "stakeholder":
+            return (
+                "Со своей стороны я вижу ограничения и другой приоритет по нагрузке. "
+                "Что для вас в этой ситуации критично обсудить в первую очередь?"
+            )
         if quote_match:
             return cleanup_case_text(quote_match.group(1)).strip()
 
@@ -1556,12 +1685,21 @@ class DeepSeekClient:
         dialogue: list[dict[str, str]],
         case_title: str,
         case_skills: list[str],
+        user_identifier: str | None = None,
         interactivity_mode: str | None = None,
         format_control_rules: str | None = None,
         recommended_answer_length: str | None = None,
         interviewer_prompt_override: str | None = None,
         fallback_user_message: str,
+        role_name: str | None = None,
+        position: str | None = None,
+        duties: str | None = None,
+        company_industry: str | None = None,
+        user_profile: dict[str, Any] | None = None,
     ) -> DeepSeekTurnResult:
+        dialog_case_mode = self._is_dialog_interactivity_mode(interactivity_mode)
+        if dialog_case_mode and not self.enabled:
+            raise RuntimeError("Dialog case requires DeepSeek, but the client is disabled.")
         fallback = self._fallback_turn(
             case_title=case_title,
             user_message=fallback_user_message,
@@ -1572,7 +1710,10 @@ class DeepSeekClient:
         if not self.enabled:
             return fallback
 
-        dialog_case_mode = self._is_dialog_interactivity_mode(interactivity_mode)
+        dialog_runtime_context = self._build_dialog_llm_context(
+            system_prompt=system_prompt,
+            dialogue=dialogue,
+        ) if dialog_case_mode else None
         dialog_case_policy_instruction = (
             "Это диалоговый кейс. "
             "Веди себя как собеседник внутри сцены кейса, а не как универсальный интервью-бот. "
@@ -1584,27 +1725,24 @@ class DeepSeekClient:
 
         if dialog_case_mode:
             fallback_instruction = (
-                "Ты агент Интервьюер и ведешь кейс в формате ролевого диалога. "
-                "Это не абстрактное интервью и не универсальный follow-up-опросник. "
-                "Отвечай как живой собеседник внутри ситуации кейса: коллега, смежник, клиент, руководитель или другой участник, которого предполагает сцена. "
-                "Каждая твоя реплика должна звучать как естественное продолжение рабочего разговора по этой ситуации. "
-                "Не выходи из роли собеседника и не переключайся в режим экзаменатора. "
-                "Не перечисляй пользователю критерии оценки, обязательные блоки, правильные шаги, риски, метрики, ограничения, стейкхолдеров или ожидаемую структуру ответа. "
-                "Если нужно добрать мысль пользователя, делай это через естественную реплику по сцене: уточнение, возражение, просьбу конкретизировать, реакцию на риск или следующий шаг. "
-                "Не повторяй один и тот же вопрос по кругу. Если тема уже раскрыта, двигай разговор дальше по ситуации. "
-                "Внутренне учитывай режим интерактивности кейса, правила контроля формата ответа и рекомендуемую длину ответа, если они заданы. "
-                "Если ответ пользователя слишком короткий, формально обрывается или не дотягивает до ожидаемой глубины, продолжи разговор одной естественной репликой по сцене, а не служебной подсказкой. "
-                "В этом кейсе особенно важно раскрыть навыки: {skills}. "
-                "Режим интерактивности кейса: {interactivity_mode}. "
-                "Контроль формата ответа: {format_control_rules}. "
-                "Рекомендуемая длина ответа: {recommended_answer_length}. "
-                "Давай ровно одну следующую реплику за ход. "
-                "Не завершай кейс самостоятельно. Завершение кейса происходит только по тайм-ауту или по отдельной команде завершения. "
-                "Никогда не проси пользователя отправлять, загружать, пересылать, публиковать или размещать информацию "
-                "во внешних сервисах, на сайтах, в мессенджерах, почте, документах, облачных хранилищах или CRM. "
-                "Все ответы пользователь должен давать только в текущем диалоге системы. "
-                "Верни только JSON с полем assistant_message. "
-                "Это должна быть одна естественная реплика собеседника по сцене без оценивания пользователя."
+                "Ты ведешь кейс в формате ролевого диалога. "
+                "{dialog_role_contract} "
+                "Ниже дан якорь сцены; держись только этого кейса и не подменяй предмет разговора, домен, участников, систему или контекст. "
+                "Название кейса: {dialog_case_title}. "
+                "Якорь сцены: {dialog_scene_anchor}. "
+                "Профессиональный контур пользователя: {dialog_domain_anchor}. "
+                "Не вводи в разговор следующие чужие доменные сущности и темы: {dialog_forbidden_drift}. "
+                "Текущая роль собеседника: {dialog_counterpart_role}. "
+                "Отвечай как живой собеседник внутри этой рабочей ситуации. "
+                "Сначала отвечай по сути на прямой вопрос или реакцию пользователя. "
+                "После этого можешь естественно продолжить разговор одной уместной репликой: уточнить, возразить, признать проблему, предложить договоренность или попросить конкретизировать. "
+                "Не выходи из роли, не превращайся в интервьюера, коуча, методиста или экзаменатора. "
+                "Не подменяй кейс другой профессиональной областью или другим конфликтом. "
+                "Не цитируй правила системы, не пересказывай инструкцию и не перечисляй критерии оценки. "
+                "Если пользователь уходит в личные выпады или вне-сценарную тему, коротко останови это и верни разговор в рабочую рамку кейса. "
+                "Не повторяй один и тот же вопрос по кругу. "
+                "Дай ровно одну естественную следующую реплику собеседника. "
+                "Верни только JSON с полем assistant_message."
             )
         else:
             fallback_instruction = (
@@ -1644,30 +1782,123 @@ class DeepSeekClient:
             "interactivity_mode": (str(interactivity_mode or '').strip() or 'не задан'),
             "format_control_rules": (str(format_control_rules or '').strip() or 'не заданы'),
             "recommended_answer_length": (str(recommended_answer_length or '').strip() or 'не задана'),
+            "dialog_counterpart_role": (
+                str((dialog_runtime_context or {}).get("counterpart_role") or "generic").strip() or "generic"
+            ),
+            "dialog_role_contract": self._get_dialog_role_contract(
+                str((dialog_runtime_context or {}).get("counterpart_role") or "generic").strip() or "generic"
+            ),
+            "dialog_case_title": str(case_title or "").strip() or "без названия",
+            "dialog_scene_anchor": self._build_dialog_scene_anchor(
+                system_prompt=system_prompt,
+                case_title=case_title,
+            ),
+            "dialog_domain_anchor": self._build_dialog_domain_anchor(
+                role_name=role_name,
+                position=position,
+                duties=duties,
+                company_industry=company_industry,
+                user_profile=user_profile,
+            ),
+            "dialog_forbidden_drift": self._build_dialog_forbidden_drift(
+                system_prompt=system_prompt,
+                company_industry=company_industry,
+                user_profile=user_profile,
+            ),
         }
-        if str(interviewer_prompt_override or "").strip():
+        if dialog_case_mode:
+            instruction = fallback_instruction.format(**format_values)
+        elif str(interviewer_prompt_override or "").strip():
             try:
                 instruction = str(interviewer_prompt_override).format(**format_values)
             except Exception:
                 instruction = str(interviewer_prompt_override)
-        elif dialog_case_mode:
-            instruction = fallback_instruction.format(**format_values)
         else:
             instruction = self._get_interviewer_prompt_text(
                 "case_follow_up",
                 fallback_instruction,
                 **format_values,
             )
-        messages = [{"role": "system", "content": system_prompt}]
+        if dialog_case_mode:
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты играешь роль собеседника в рабочем ролевом диалоге. "
+                        "Отвечай только из своей роли, без анализа пользователя, без оценивания, "
+                        "без объяснения своей внутренней логики и без мета-комментариев."
+                    ),
+                }
+            ]
+        else:
+            messages = [{"role": "system", "content": system_prompt}]
         if dialog_case_policy_instruction:
             messages.append({"role": "system", "content": dialog_case_policy_instruction})
         messages.extend([{"role": "system", "content": instruction}, *dialogue])
         try:
-            raw = self._post_chat(messages, temperature=0.35)
-            parsed = self._parse_json(raw)
-            assistant_message = self._sanitize_interviewer_message(
-                str(parsed.get("assistant_message") or fallback.assistant_message)
+            routing_key = (
+                f"user:{user_identifier}"
+                if str(user_identifier or "").strip()
+                else f"dialog:{case_title}|{role_name or ''}|{company_industry or ''}"
             )
+            raw = self._post_chat(
+                messages,
+                temperature=0.6 if dialog_case_mode else 0.35,
+                routing_key=routing_key,
+            )
+            if dialog_case_mode:
+                assistant_message = self._extract_dialog_assistant_message(raw)
+                if self._looks_like_dialog_meta_response(assistant_message):
+                    retry_messages = [
+                        *messages,
+                        {
+                            "role": "system",
+                            "content": (
+                                "Ты только что вышел из роли. "
+                                "Не описывай пользователя, не объясняй свою внутреннюю логику, "
+                                "не упоминай навыки, интервью, сценарий, оценку или контекст задания. "
+                                "Сейчас верни одну короткую живую реплику собеседника внутри сцены кейса."
+                            ),
+                        },
+                    ]
+                    retry_raw = self._post_chat(retry_messages, temperature=0.45, routing_key=routing_key)
+                    assistant_message = self._extract_dialog_assistant_message(retry_raw)
+                if self._looks_like_dialog_domain_drift(
+                    assistant_message,
+                    self._build_dialog_forbidden_drift(
+                        system_prompt=system_prompt,
+                        company_industry=company_industry,
+                        user_profile=user_profile,
+                    ),
+                ):
+                    retry_messages = [
+                        *messages,
+                        {
+                            "role": "system",
+                            "content": (
+                                "Ты уехал в чужую предметную область. "
+                                "Убери несоответствующие доменные сущности и верни реплику только в рамках этого кейса и профессионального контура."
+                            ),
+                        },
+                    ]
+                    retry_raw = self._post_chat(retry_messages, temperature=0.4, routing_key=routing_key)
+                    assistant_message = self._extract_dialog_assistant_message(retry_raw)
+                if self._looks_like_dialog_meta_response(assistant_message):
+                    raise RuntimeError("DeepSeek returned dialog meta reasoning instead of an in-role reply.")
+                if self._looks_like_dialog_domain_drift(
+                    assistant_message,
+                    self._build_dialog_forbidden_drift(
+                        system_prompt=system_prompt,
+                        company_industry=company_industry,
+                        user_profile=user_profile,
+                    ),
+                ):
+                    raise RuntimeError("DeepSeek returned a dialog reply with domain drift.")
+            else:
+                parsed = self._parse_json(raw)
+                assistant_message = self._sanitize_interviewer_message(
+                    str(parsed.get("assistant_message") or fallback.assistant_message)
+                )
             return DeepSeekTurnResult(
                 assistant_message=assistant_message,
                 is_case_complete=False,
@@ -1675,7 +1906,9 @@ class DeepSeekClient:
                 completion_score=None,
                 evaluator_summary="",
             )
-        except Exception:
+        except Exception as exc:
+            if dialog_case_mode:
+                raise RuntimeError(f"DeepSeek dialog generation failed: {exc}") from exc
             return fallback
 
     def build_manual_finish_turn(
@@ -1924,6 +2157,409 @@ class DeepSeekClient:
             return topic_questions["steps"]
         return topic_questions["control"]
 
+    def _build_dialog_direct_answer(
+        self,
+        *,
+        normalized_user: str,
+        counterpart_role: str,
+        asked_stages: set[str],
+    ) -> str | None:
+        if "?" not in normalized_user and not any(
+            token in normalized_user
+            for token in ("почему", "из-за чего", "что мешает", "что именно", "какая поддержка", "что нужно")
+        ):
+            return None
+
+        if counterpart_role == "peer":
+            if any(token in normalized_user for token in ("почему", "из-за чего", "не закрыл", "сорвался срок", "что случилось")):
+                return (
+                    "Потому что меня в тот момент сорвало на срочную эскалацию, и я не зафиксировал нормально новый срок и статус. "
+                    "Давай разберем, что у нас в этом месте ломается чаще всего."
+                )
+            if any(token in normalized_user for token in ("что мешает", "что тебе мешает", "в чем проблема", "в чём проблема")):
+                return (
+                    "Сильнее всего мешает резкое переключение между срочными эскалациями и обычной очередью, "
+                    "из-за этого я проваливаю обновление статуса и договоренности по сроку. "
+                    "Надо понять, как это лучше фиксировать заранее."
+                )
+            if any(token in normalized_user for token in ("какая поддержка", "что тебе нужно", "что нужно от меня")):
+                return (
+                    "От тебя мне нужна понятная договоренность: если я понимаю, что срок срывается, я сразу пишу это в Service Desk, "
+                    "а мы отдельно сверяем новый срок и следующий шаг, а не оставляем заявку без обновления."
+                )
+            if any(token in normalized_user for token in ("что именно нужно", "какой минимум", "что должно быть")):
+                return (
+                    "Минимум для меня такой: актуальный статус, что уже проверено, почему срок сдвигается и какой следующий шаг мы фиксируем. "
+                    "Тогда следующая передача не повисает в воздухе."
+                )
+
+        if counterpart_role == "employee":
+            if any(token in normalized_user for token in ("почему", "из-за чего", "что случилось")):
+                return (
+                    "Потому что в последнее время я начал терять приоритет между срочными задачами и регулярной работой, "
+                    "и это стало бить по предсказуемости результата. "
+                    "Давайте разберем, где именно это проявляется сильнее всего."
+                )
+            if any(token in normalized_user for token in ("какая поддержка", "что нужно от нас", "что вам нужно")):
+                return (
+                    "Мне нужна понятная рамка ожиданий, короткая сверка по приоритетам и контрольная точка, "
+                    "чтобы изменение не осталось только договоренностью на словах."
+                )
+
+        if counterpart_role == "stakeholder":
+            if any(token in normalized_user for token in ("что для вас критично", "что вам нужно", "почему не получается")):
+                return (
+                    "Для нас критично не потерять темп и не зависнуть без понятного следующего шага. "
+                    "Со своей стороны я хочу сразу проговорить ограничения и понять, на чем мы можем зафиксироваться сейчас."
+                )
+
+        if counterpart_role == "client":
+            if any(token in normalized_user for token in ("когда", "какой срок", "что происходит", "почему")):
+                return (
+                    "Сейчас я не готов обещать срок без подтверждения следующего шага, но могу сразу зафиксировать, "
+                    "что вопрос не закрыт и требует обновления статуса. "
+                    "Давайте тогда определим, что именно делаем следующим действием."
+                )
+
+        if counterpart_role in {"manager", "stakeholder"} and "criticality" not in asked_stages:
+            return (
+                "С моей стороны важно не потерять управляемость ситуации и не оставить ее без договоренности. "
+                "Давайте тогда зафиксируем, что для вас сейчас самое критичное."
+            )
+        return None
+
+    def _infer_dialog_counterpart_role_from_text(self, scenario_text: str) -> str:
+        normalized = str(scenario_text or "").lower()
+        if any(
+            marker in normalized
+            for marker in (
+                "между нами как коллегами",
+                "следующая смена",
+                "вторая линия",
+                "смежной команды",
+                "по этой передаче",
+                "ты готов поменять",
+                "ты мог взять инцидент",
+            )
+        ):
+            return "peer"
+        if any(
+            marker in normalized
+            for marker in (
+                "развивающей беседе",
+                "план развития",
+                "зона роста",
+                "сотрудник",
+                "подчинен",
+                "подчинён",
+            )
+        ):
+            return "employee"
+        if any(marker in normalized for marker in ("руковод", "лидер", "менеджер")):
+            return "manager"
+        if any(marker in normalized for marker in ("стейкхолдер", "смежник", "смежная сторона")):
+            return "stakeholder"
+        if any(marker in normalized for marker in ("клиент", "пользоват", "заказчик", "заявител")):
+            return "client"
+        return "generic"
+
+    def _get_dialog_stage_label(self, stage_code: str | None) -> str:
+        mapping = {
+            "root_cause": "прояснение причины и ограничений",
+            "missing_info": "уточнение недостающей информации",
+            "workflow_rule": "согласование рабочего минимума и правил передачи",
+            "future_change": "обсуждение изменения процесса на будущее",
+            "change_commitment": "личное обязательство по изменению поведения",
+            "support_need": "обсуждение нужной поддержки и условий",
+            "agreement": "фиксация рабочей договоренности",
+            "closure": "закрытие разговора и контрольная точка",
+            "criticality": "прояснение критичности и приоритетов",
+            "constraints": "прояснение ограничений и зависимостей",
+            "next_step": "согласование ближайшего следующего шага",
+        }
+        return mapping.get(str(stage_code or "").strip(), "рабочее продолжение разговора")
+
+    def _build_dialog_llm_context(
+        self,
+        *,
+        system_prompt: str,
+        dialogue: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        scenario_text = " ".join(item["content"] for item in dialogue if item["role"] == "assistant")
+        assistant_messages = [
+            str(item["content"] or "").strip()
+            for item in dialogue
+            if item["role"] == "assistant" and str(item["content"] or "").strip()
+        ]
+        asked_stages: set[str] = set()
+        for message in assistant_messages[-4:]:
+            asked_stages.update(self._infer_dialog_reply_stages(message))
+        role = self._infer_dialog_counterpart_role_from_text(f"{system_prompt}\n{scenario_text}")
+        is_development_dialog = role == "employee" or any(
+            marker in f"{system_prompt}\n{scenario_text}".lower()
+            for marker in (
+                "развивающ",
+                "план развития",
+                "план роста",
+                "зона роста",
+                "обратной связ",
+            )
+        )
+        plan = self._get_dialog_stage_plan(counterpart_role=role, is_development_dialog=is_development_dialog)
+        next_stage = next((stage for stage in plan if stage not in asked_stages), None)
+        return {
+            "counterpart_role": role,
+            "is_development_dialog": is_development_dialog,
+            "asked_stages": asked_stages,
+            "next_stage": next_stage,
+            "next_stage_label": self._get_dialog_stage_label(next_stage),
+            "stage_plan": list(plan),
+        }
+
+    def _build_dialog_scene_anchor(self, *, system_prompt: str, case_title: str | None) -> str:
+        source = cleanup_case_text(system_prompt or "")
+        source = re.sub(r"\s+", " ", source).strip()
+        case_name = str(case_title or "").strip()
+        anchor_parts: list[str] = []
+        if case_name:
+            anchor_parts.append(f"Кейс: {case_name}.")
+
+        situation_match = re.search(
+            r"(?:Сценарий кейса\s*)?(?:Ситуация\s*:?\s*)(.*?)(?=(?:Что известно|Что ограничивает|Что нужно сделать)\s*:?)",
+            source,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if situation_match:
+            situation = situation_match.group(1).strip()
+            if situation:
+                anchor_parts.append(f"Ситуация: {situation}")
+
+        facts_match = re.search(
+            r"(?:Что известно\s*:?\s*)(.*?)(?=(?:Что ограничивает|Что нужно сделать)\s*:?)",
+            source,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if facts_match:
+            facts = facts_match.group(1).strip()
+            if facts:
+                anchor_parts.append(f"Что известно: {facts}")
+
+        limits_match = re.search(
+            r"(?:Что ограничивает\s*:?\s*)(.*?)(?=(?:Что нужно сделать)\s*:?)",
+            source,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if limits_match:
+            limits = limits_match.group(1).strip()
+            if limits:
+                anchor_parts.append(f"Ограничения: {limits}")
+
+        task_match = re.search(
+            r"(?:Что нужно сделать\s*:?\s*)(.*)$",
+            source,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if task_match:
+            task = task_match.group(1).strip()
+            if task:
+                anchor_parts.append(f"Цель разговора: {task}")
+
+        if not anchor_parts and source:
+            anchor_parts.append(source[:1200])
+        anchor = " ".join(part for part in anchor_parts if part).strip()
+        return anchor[:1800]
+
+    def _build_dialog_domain_anchor(
+        self,
+        *,
+        role_name: str | None,
+        position: str | None,
+        duties: str | None,
+        company_industry: str | None,
+        user_profile: dict[str, Any] | None,
+    ) -> str:
+        profile = dict(user_profile or {})
+        context_vars = dict(profile.get("user_context_vars") or {})
+        domain_profile = dict(context_vars.get("domain_profile") or {})
+
+        domain_label = cleanup_case_text(
+            str(
+                context_vars.get("domain")
+                or profile.get("user_domain")
+                or domain_profile.get("domain_label")
+                or company_industry
+                or ""
+            )
+        ).strip()
+        role_label = cleanup_case_text(str(role_name or position or "")).strip()
+        systems = self._normalize_string_list(
+            context_vars.get("systems") or profile.get("user_systems") or domain_profile.get("systems"),
+            fallback=[],
+        )[:4]
+        artifacts = self._normalize_string_list(
+            context_vars.get("artifacts") or profile.get("user_artifacts") or domain_profile.get("artifacts"),
+            fallback=[],
+        )[:4]
+        stakeholders = self._normalize_string_list(
+            context_vars.get("stakeholders") or profile.get("user_stakeholders") or domain_profile.get("stakeholders"),
+            fallback=[],
+        )[:4]
+        constraints = self._normalize_string_list(
+            context_vars.get("constraints") or profile.get("user_constraints") or domain_profile.get("constraints"),
+            fallback=[],
+        )[:3]
+
+        lines: list[str] = []
+        if role_label:
+            lines.append(f"Роль пользователя: {role_label}.")
+        if domain_label:
+            lines.append(f"Профессиональная область: {domain_label}.")
+        if systems:
+            lines.append(f"Типовые системы и контуры: {', '.join(systems)}.")
+        if artifacts:
+            lines.append(f"Типовые рабочие объекты: {', '.join(artifacts)}.")
+        if stakeholders:
+            lines.append(f"Типовые участники взаимодействия: {', '.join(stakeholders)}.")
+        if constraints:
+            lines.append(f"Ограничения рабочей среды: {', '.join(constraints)}.")
+        if duties:
+            lines.append(f"Описание работы пользователя: {cleanup_case_text(str(duties)).strip()}.")
+        if not lines:
+            return "Держись профессиональной области, заданной кейсом, и не уезжай в другой домен."
+        lines.append(
+            "Не подменяй эту профессиональную область другой сферой, не придумывай чужие процессы и участников вне указанного контура."
+        )
+        return " ".join(lines)[:1600]
+
+    def _build_dialog_forbidden_drift(
+        self,
+        *,
+        system_prompt: str,
+        company_industry: str | None,
+        user_profile: dict[str, Any] | None,
+    ) -> str:
+        source = cleanup_case_text(
+            " ".join(
+                filter(
+                    None,
+                    [
+                        system_prompt,
+                        company_industry or "",
+                        str((user_profile or {}).get("user_domain") or ""),
+                    ],
+                )
+            )
+        ).lower()
+        forbidden: list[str] = []
+
+        def add(items: list[str]) -> None:
+            for item in items:
+                if item not in forbidden:
+                    forbidden.append(item)
+
+        if any(token in source for token in ("service desk", "sla", "ит", "поддержк", "инцидент", "заявк", "crm", "доступ")):
+            add(["кандидаты", "офферы", "рекрутеры", "HR", "маркетинг", "бриф", "креатив", "юристы"])
+        if any(token in source for token in ("подбор", "кандидат", "оффер", "hr")):
+            add(["service desk", "инцидент", "SLA", "принтер", "CRM", "доступ к папке"])
+        if any(token in source for token in ("финанс", "бюджет", "договор", "юрист")):
+            add(["кандидаты", "офферы", "Service Desk", "инциденты"])
+        if not forbidden:
+            add(["чужой домен, не связанный со сценой кейса"])
+        return ", ".join(forbidden)
+
+    def _looks_like_dialog_domain_drift(self, text: str, forbidden_drift: str) -> bool:
+        normalized = str(text or "").lower()
+        items = [item.strip().lower() for item in str(forbidden_drift or "").split(",") if item.strip()]
+        if not normalized or not items:
+            return False
+        return any(item in normalized for item in items)
+
+    def _get_dialog_role_contract(self, counterpart_role: str) -> str:
+        contracts = {
+            "peer": (
+                "Ты коллега или руководитель смежной команды внутри рабочего конфликта. "
+                "Можешь объяснять свои действия, защищать позицию, признавать часть проблемы, спорить и договариваться о правилах взаимодействия."
+            ),
+            "employee": (
+                "Ты сотрудник или ключевой участник развивающей беседы. "
+                "Можешь объяснять, что мешало работе, что готов менять и какая поддержка тебе нужна."
+            ),
+            "stakeholder": (
+                "Ты руководитель смежной команды или стейкхолдер со своими приоритетами и ограничениями. "
+                "Можешь называть зависимости, возражать, объяснять рамки и договариваться о формате совместной работы."
+            ),
+            "manager": (
+                "Ты руководитель или менеджер внутри рабочей сцены. "
+                "Можешь обозначать приоритеты, ограничения, ожидания и обсуждать конкретную договоренность."
+            ),
+            "client": (
+                "Ты клиент или заявитель внутри рабочей ситуации. "
+                "Можешь требовать ясности, следующего шага, объяснения по сроку и по статусу."
+            ),
+            "generic": (
+                "Ты участник рабочей сцены кейса. "
+                "Отвечай естественно, по-человечески и строго в рамках своей роли, а не как интервью-бот."
+            ),
+        }
+        return contracts.get(counterpart_role, contracts["generic"])
+
+    def _get_dialog_stage_plan(self, *, counterpart_role: str, is_development_dialog: bool) -> tuple[str, ...]:
+        if is_development_dialog or counterpart_role == "employee":
+            return ("root_cause", "change_commitment", "support_need", "agreement", "closure")
+        if counterpart_role == "peer":
+            return ("root_cause", "missing_info", "workflow_rule", "change_commitment", "support_need", "agreement", "closure")
+        if counterpart_role in {"manager", "stakeholder"}:
+            return ("criticality", "constraints", "agreement", "closure")
+        if counterpart_role == "client":
+            return ("next_step", "constraints", "agreement", "closure")
+        return ("root_cause", "agreement", "closure")
+
+    def _build_dialog_stage_prompt(
+        self,
+        *,
+        counterpart_role: str,
+        is_development_dialog: bool,
+        asked_stages: set[str],
+    ) -> str | None:
+        plan = self._get_dialog_stage_plan(
+            counterpart_role=counterpart_role,
+            is_development_dialog=is_development_dialog,
+        )
+        next_stage = next((stage for stage in plan if stage not in asked_stages), None)
+        if not next_stage:
+            return None
+
+        stage_prompts = {
+            ("peer", "root_cause"): "Давай тогда сначала разберем причину: где именно сейчас ломается процесс или не хватает ресурса, из-за чего эта ситуация повторяется?",
+            ("peer", "missing_info"): "Хорошо, тогда давай конкретно: каких данных или комментариев тебе не хватало в карточке, чтобы ты мог взять инцидент в работу без дополнительного круга уточнений?",
+            ("peer", "workflow_rule"): "Окей, это уже конкретно. Тогда давай договоримся предметно: что именно должно быть обязательным минимумом в карточке перед передачей, чтобы следующая смена могла сразу брать задачу в работу?",
+            ("peer", "change_commitment"): "Хорошо, давай тогда предметно: что именно ты предлагаешь изменить в нашей работе после этого разговора?",
+            ("peer", "support_need"): "Окей. А какая поддержка или договоренность с моей стороны нужна, чтобы это изменение реально закрепилось в работе?",
+            ("peer", "agreement"): "Тогда предлагаю зафиксировать это как рабочую договоренность. Ты готов на таком варианте остановиться?",
+            ("peer", "closure"): "Договорились. Тогда коротко фиксируем новый порядок и контрольную точку, чтобы через несколько дней проверить, что он действительно работает.",
+            ("employee", "root_cause"): "Хорошо. Тогда давайте сначала разберем причину: где именно сейчас возникает основной перегруз или сбой, из-за которого ситуация повторяется?",
+            ("employee", "change_commitment"): "Хорошо. Тогда что именно вы готовы изменить уже на этой неделе, чтобы ситуация не повторялась в том же виде?",
+            ("employee", "support_need"): "Понял. Тогда какая поддержка или договоренность со второй стороны нужна вам, чтобы новый порядок действительно удержался в работе?",
+            ("employee", "agreement"): "Хорошо. Тогда давайте зафиксируем это как рабочую договоренность и сверим контрольную точку. Вы готовы на таком варианте остановиться?",
+            ("employee", "closure"): "Договорились. Тогда фиксируем новый порядок, поддержку и контрольную точку на конец недели, чтобы проверить, что изменение действительно закрепилось в работе.",
+            ("stakeholder", "criticality"): "Хорошо. Скажите тогда прямо: что для вас в этой ситуации сейчас самое критичное и на каком шаге вы хотите договориться в первую очередь?",
+            ("stakeholder", "constraints"): "Понял. Тогда какие ограничения или зависимости со своей стороны вы считаете ключевыми для этой договоренности?",
+            ("stakeholder", "agreement"): "Хорошо. Тогда какой рабочий формат взаимодействия мы можем зафиксировать уже сейчас, чтобы ситуация не зависла снова?",
+            ("stakeholder", "closure"): "Договорились. Тогда зафиксируем выбранный формат и контрольную точку, на которой проверим, что договоренность действительно сработала.",
+            ("manager", "criticality"): "Хорошо. Скажите тогда прямо: что для вас в этой ситуации сейчас самое критичное и на каком шаге вы хотите договориться в первую очередь?",
+            ("manager", "constraints"): "Понял. Тогда какие ограничения или зависимости со своей стороны вы считаете ключевыми для этой договоренности?",
+            ("manager", "agreement"): "Хорошо. Тогда какой рабочий формат взаимодействия мы можем зафиксировать уже сейчас, чтобы ситуация не зависла снова?",
+            ("manager", "closure"): "Договорились. Тогда зафиксируем выбранный формат и контрольную точку, на которой проверим, что договоренность действительно сработала.",
+            ("client", "next_step"): "Я вас услышал. Что именно вы предлагаете сделать следующим шагом уже сейчас, чтобы снять напряжение и не оставить вопрос в подвешенном состоянии?",
+            ("client", "constraints"): "Хорошо. Тогда что в этой ситуации ограничивает вас сильнее всего и что нужно подтвердить, прежде чем обещать срок или решение?",
+            ("client", "agreement"): "Понял. Тогда на каком варианте следующего шага и обновления статуса мы можем зафиксироваться уже сейчас?",
+            ("client", "closure"): "Хорошо. Тогда подтвердите коротко: какой следующий шаг вы фиксируете и когда вернетесь с обновлением?",
+            ("generic", "root_cause"): "Хорошо. Скажите прямо: что именно в этой ситуации сейчас мешает договориться о следующем рабочем шаге?",
+            ("generic", "agreement"): "Понял. Тогда какой вариант договоренности вы считаете реалистичным уже сейчас?",
+            ("generic", "closure"): "Договорились. Тогда коротко зафиксируем следующий шаг и контрольную точку.",
+        }
+        return stage_prompts.get((counterpart_role, next_stage)) or stage_prompts.get(("generic", next_stage))
+
     def _build_dialog_case_reply(
         self,
         *,
@@ -1941,7 +2577,9 @@ class DeepSeekClient:
         asked_stages: set[str] = set()
         for message in assistant_messages[-4:]:
             asked_stages.update(self._infer_dialog_reply_stages(message))
-        is_peer_dialog = "коллег" in scenario_text or "смен" in scenario_text
+        counterpart_role = self._infer_dialog_counterpart_role_from_text(scenario_text)
+
+        is_peer_dialog = counterpart_role == "peer"
         is_development_dialog = any(
             marker in scenario_text
             for marker in (
@@ -2132,6 +2770,74 @@ class DeepSeekClient:
                 "давай так",
             )
         )
+        work_topic_markers = (
+            "заявк",
+            "срок",
+            "инцидент",
+            "service desk",
+            "сервис деск",
+            "эскалац",
+            "статус",
+            "комментар",
+            "передач",
+            "нагруз",
+            "ресурс",
+            "договор",
+            "задач",
+            "очеред",
+            "повтор",
+            "закрыл",
+            "закры",
+        )
+        personal_attack_markers = (
+            "пахнет",
+            "воня",
+            "воняет",
+            "одеколон",
+            "дезодоран",
+            "пахнеш",
+            "пахнешь",
+            "вонюч",
+            "воняешь",
+            "вонь",
+        )
+        is_offtopic_personal_attack = (
+            any(marker in normalized_user for marker in personal_attack_markers)
+        )
+
+        if is_offtopic_personal_attack:
+            if is_peer_dialog:
+                return (
+                    "Давай оставим личные оценки в стороне и вернемся к рабочей ситуации. "
+                    "Мне важно понять по делу: из-за чего именно у тебя в этой цепочке снова сорвался срок по заявке?"
+                )
+            if is_development_dialog:
+                return (
+                    "Давайте вернем разговор в рабочую рамку. "
+                    "Что именно в процессе или нагрузке сейчас мешает вам удерживать договоренности по срокам?"
+                )
+            if counterpart_role == "stakeholder":
+                return (
+                    "Предлагаю держаться рабочей сути разговора. "
+                    "Что именно сейчас мешает согласовать следующий шаг и снять напряжение по ситуации?"
+                )
+            if counterpart_role == "client":
+                return (
+                    "Давайте вернемся к сути вопроса. "
+                    "Какой конкретный следующий шаг вы предлагаете сейчас по рабочей ситуации?"
+                )
+            return (
+                "Предлагаю оставить личные комментарии в стороне и вернуться к рабочей ситуации. "
+                "Что именно в процессе сейчас нужно прояснить в первую очередь?"
+            )
+
+        direct_answer = self._build_dialog_direct_answer(
+            normalized_user=normalized_user,
+            counterpart_role=counterpart_role,
+            asked_stages=asked_stages,
+        )
+        if direct_answer:
+            return direct_answer
 
         if is_development_dialog:
             if "root_cause" not in asked_stages:
@@ -2154,7 +2860,12 @@ class DeepSeekClient:
                 return "Хорошо. Тогда подтвердите, что на таком порядке мы останавливаемся и проверяем результат в согласованную дату."
             if wants_closure and "closure" not in asked_stages:
                 return "Договорились. Тогда фиксируем новый порядок, поддержку и контрольную точку на конец недели, чтобы проверить, что изменение действительно закрепилось в работе."
-            return "Хорошо. Тогда так и работаем дальше: держим этот порядок и возвращаемся к нему на контрольной точке."
+            staged_prompt = self._build_dialog_stage_prompt(
+                counterpart_role=counterpart_role,
+                is_development_dialog=is_development_dialog,
+                asked_stages=asked_stages,
+            )
+            return staged_prompt or "Хорошо. Тогда так и работаем дальше: держим этот порядок и возвращаемся к нему на контрольной точке."
 
         if (
             wants_support
@@ -2252,11 +2963,21 @@ class DeepSeekClient:
                 return "Договорились. Тогда фиксируем так: перед передачей ты оставляешь обязательный минимум в карточке, а если видишь риск срыва или пробел по данным, отдельно пишешь об этом сразу. С моей стороны я тоже не возвращаю задачу молча, а прямо отмечаю, чего не хватает."
             return "Договорились. Тогда фиксируем этот порядок как рабочее правило и в следующий раз сразу отдельно отмечаем риск, если данных или подтверждений не хватает."
 
-        if "клиент" in scenario_text:
-            return "Я вас услышал. Что именно вы предлагаете сделать следующим шагом уже сейчас, чтобы снять напряжение и не оставить вопрос в подвешенном состоянии?"
+        if counterpart_role == "client":
+            staged_prompt = self._build_dialog_stage_prompt(
+                counterpart_role=counterpart_role,
+                is_development_dialog=is_development_dialog,
+                asked_stages=asked_stages,
+            )
+            return staged_prompt or "Хорошо. Тогда подтвердите коротко: какой следующий шаг вы фиксируете и когда вернетесь с обновлением?"
 
-        if "руковод" in scenario_text or "стейкхолдер" in scenario_text:
-            return "Хорошо. Скажите тогда прямо: на каком конкретном шаге вы хотите договориться сейчас и что для этого нужно от второй стороны?"
+        if counterpart_role in {"manager", "stakeholder"}:
+            staged_prompt = self._build_dialog_stage_prompt(
+                counterpart_role=counterpart_role,
+                is_development_dialog=is_development_dialog,
+                asked_stages=asked_stages,
+            )
+            return staged_prompt or "Договорились. Тогда зафиксируем выбранный формат и контрольную точку, на которой проверим, что договоренность действительно сработала."
 
         if is_peer_dialog:
             if assistant_turn_count == 0:
@@ -2327,7 +3048,12 @@ class DeepSeekClient:
                 )
             ):
                 return "Договорились. Тогда коротко фиксируем новый порядок и контрольную точку, чтобы через несколько дней проверить, что он действительно работает."
-            return "Хорошо, тогда так и работаем дальше: держим этот порядок и возвращаемся к нему на ближайшей контрольной точке."
+            staged_prompt = self._build_dialog_stage_prompt(
+                counterpart_role=counterpart_role,
+                is_development_dialog=is_development_dialog,
+                asked_stages=asked_stages,
+            )
+            return staged_prompt or "Хорошо, тогда так и работаем дальше: держим этот порядок и возвращаемся к нему на ближайшей контрольной точке."
 
         return "Хорошо. Скажите прямо: что именно в этой ситуации нужно прояснить или изменить уже сейчас, чтобы разговор сдвинулся с места?"
 
@@ -2336,11 +3062,14 @@ class DeepSeekClient:
         stages: set[str] = set()
         stage_keywords = {
             "emotion": ("задело", "без общих слов", "сорвался", "сорвал", "резко"),
+            "criticality": ("самое критичное", "что для вас в этой ситуации сейчас самое критичное", "на каком шаге вы хотите договориться"),
             "root_cause": ("разберем причину", "разберём причину", "где именно сейчас", "основной перегруз", "основной сбой", "из-за которого"),
             "missing_info": ("чего именно не хватило", "какие данные", "какой информации", "какие комментарии"),
             "workflow_rule": ("обязательным минимумом", "минимумом в карточке", "что должно быть обязательным"),
             "future_change": ("что именно должно меняться", "не повторялась", "в следующ", "при следующей передаче"),
             "change_commitment": ("что именно ты готов поменять", "что именно вы готовы изменить", "уже на этой неделе", "в ближайшие дни"),
+            "next_step": ("следующим шагом", "какой следующий шаг", "не оставить вопрос в подвешенном состоянии"),
+            "constraints": ("какие ограничения", "что ограничивает", "какие зависимости", "что нужно подтвердить"),
             "support_need": ("какая поддержка", "какая договоренность", "какая договорённость", "с моей стороны тебе нужна", "со второй стороны нужна"),
             "agreement": ("ты с этим согласен", "готовы на таком варианте договориться", "давайте тогда это зафиксируем"),
             "closure": ("договорились", "тогда фиксируем так", "с моей стороны я тоже", "рабочее правило"),
@@ -2382,6 +3111,45 @@ class DeepSeekClient:
             if start != -1 and end != -1 and end > start:
                 return json.loads(text[start : end + 1])
             raise
+
+    def _extract_dialog_assistant_message(self, raw: str) -> str:
+        text = str(raw or "").strip()
+        if not text:
+            raise ValueError("Empty DeepSeek dialog response")
+        try:
+            parsed = self._parse_json(text)
+            candidate = str(parsed.get("assistant_message") or "").strip()
+            if candidate:
+                return self._sanitize_dialog_assistant_message(candidate)
+        except Exception:
+            pass
+
+        fenced = text
+        if fenced.startswith("```"):
+            fenced = fenced.strip("`")
+            fenced = re.sub(r"^\s*json\s*", "", fenced, count=1, flags=re.IGNORECASE).strip()
+
+        key_match = re.search(
+            r'"assistant_message"\s*:\s*"(?P<value>(?:[^"\\]|\\.)+)"',
+            fenced,
+            flags=re.DOTALL,
+        )
+        if key_match:
+            try:
+                decoded = json.loads(f'"{key_match.group("value")}"')
+                cleaned = str(decoded or "").strip()
+                if cleaned:
+                    return self._sanitize_dialog_assistant_message(cleaned)
+            except Exception:
+                pass
+
+        cleaned_text = fenced.strip()
+        if cleaned_text.startswith("{") and cleaned_text.endswith("}"):
+            cleaned_text = re.sub(r'^\{\s*"assistant_message"\s*:\s*', "", cleaned_text, count=1, flags=re.DOTALL)
+            cleaned_text = cleaned_text.rstrip("}").strip().strip('"').strip()
+        if not cleaned_text:
+            raise ValueError("Unable to extract dialog assistant message")
+        return self._sanitize_dialog_assistant_message(cleaned_text)
 
     def _extract_placeholders(self, text: str) -> list[str]:
         values = []
@@ -12226,6 +12994,34 @@ class DeepSeekClient:
                 "Передавать информацию во внешние сервисы, документы, мессенджеры или почту не требуется."
             )
         return self._normalize_prompt_sentences(sanitized).strip()
+
+    def _sanitize_dialog_assistant_message(self, text: str) -> str:
+        original = str(text or "").strip()
+        sanitized = self._enforce_external_sharing_policy(original)
+        normalized = self._normalize_prompt_sentences(sanitized).strip()
+        if normalized:
+            return normalized
+        return self._normalize_prompt_sentences(original).strip()
+
+    def _looks_like_dialog_meta_response(self, text: str) -> bool:
+        normalized = str(text or "").strip().lower()
+        if not normalized:
+            return True
+        meta_markers = (
+            "пользователь ответил",
+            "пользователь продолжает",
+            "мне нужно продолжить интервью",
+            "чтобы раскрыть навык",
+            "в рамках",
+            "в контексте кейса",
+            "спрошу об этом",
+            "сценария разговора",
+            "это показывает",
+            "важно понять",
+            "интервью",
+            "оценк",
+        )
+        return any(marker in normalized for marker in meta_markers)
 
     def _enforce_external_sharing_policy(self, text: str) -> str:
         result = (text or "").strip()

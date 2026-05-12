@@ -506,15 +506,6 @@ class BaseCompetencyAgent:
             for item in payload.get("skill_evidence", [])
             if item.get("related_response_block_code")
         }
-        required_codes = evidence_block_codes or {
-            block["block_code"]
-            for payload in case_payload
-            for block in payload.get("required_response_blocks", [])
-            if block.get("block_code")
-        }
-        for block_code in required_codes:
-            if not structural_elements.get(f"covers_{block_code}", False):
-                flags.append(f"missing_block_{block_code}")
         methodical_flag_codes = {
             flag["flag_code"]
             for payload in case_payload
@@ -547,6 +538,19 @@ class BaseCompetencyAgent:
         ):
             flags.append("no_metric")
         return flags
+
+    def _hard_red_flags(self) -> set[str]:
+        return {
+            "responsibility_shift",
+            "aggressive_tone",
+            "ignoring_constraints",
+            "no_alignment",
+            "solo_mode",
+            "unsafe_team_climate",
+            "template_thinking",
+            "no_validation",
+            "risk_blindness",
+        }
 
     def _summarize_required_blocks(
         self,
@@ -739,14 +743,11 @@ class BaseCompetencyAgent:
                 artifact_compliance_percent=artifact_compliance_percent,
                 missing_artifact_parts=missing_artifact_parts,
             )
-        if len(red_flags) >= 2:
+        hard_red_flags = [flag for flag in red_flags if flag in self._hard_red_flags()]
+        if len(hard_red_flags) >= 2:
             return "N/A"
-        if level == "L3":
-            level = "L2"
-        if level == "L2":
-            level = "L1"
-        elif level == "L1":
-            level = "N/A"
+        if hard_red_flags:
+            level = {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
         level = self._adjust_level_by_structure(
             level=level,
             block_coverage_percent=block_coverage_percent,
@@ -771,8 +772,10 @@ class BaseCompetencyAgent:
         if block_coverage_percent == 0:
             return "N/A"
         if block_coverage_percent < 40:
-            return {"L3": "L1", "L2": "L1", "L1": "N/A"}.get(level, "N/A")
-        if block_coverage_percent < 70 or len(missing_required_blocks) >= 2:
+            return {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
+        if block_coverage_percent < 70:
+            return {"L3": "L2", "L2": "L2", "L1": "L1"}.get(level, level)
+        if len(missing_required_blocks) >= 3:
             return {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
         return level
 
@@ -788,8 +791,10 @@ class BaseCompetencyAgent:
         if artifact_compliance_percent == 0:
             return "N/A"
         if artifact_compliance_percent < 40:
-            return {"L3": "L1", "L2": "L1", "L1": "N/A"}.get(level, "N/A")
-        if artifact_compliance_percent < 70 or len(missing_artifact_parts) >= 2:
+            return {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
+        if artifact_compliance_percent < 70:
+            return {"L3": "L2", "L2": "L2", "L1": "L1"}.get(level, level)
+        if len(missing_artifact_parts) >= 3:
             return {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
         return level
 
@@ -1128,9 +1133,11 @@ class CommunicationAgent(BaseCompetencyAgent):
                 artifact_compliance_percent=artifact_compliance_percent,
                 missing_artifact_parts=missing_artifact_parts,
             )
-        if len(red_flags) >= 2:
+        hard_red_flags = [flag for flag in red_flags if flag in self._hard_red_flags()]
+        if len(hard_red_flags) >= 2:
             return "N/A"
-        level = {"L3": "L2", "L2": "L1", "L1": "N/A"}.get(level, "N/A")
+        if hard_red_flags:
+            level = {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
         level = self._adjust_level_by_structure(
             level=level,
             block_coverage_percent=block_coverage_percent,
@@ -1222,9 +1229,11 @@ class TeamworkAgent(BaseCompetencyAgent):
                 artifact_compliance_percent=artifact_compliance_percent,
                 missing_artifact_parts=missing_artifact_parts,
             )
-        if len(red_flags) >= 2:
+        hard_red_flags = [flag for flag in red_flags if flag in self._hard_red_flags()]
+        if len(hard_red_flags) >= 2:
             return "N/A"
-        level = {"L3": "L2", "L2": "L1", "L1": "N/A"}.get(level, "N/A")
+        if hard_red_flags:
+            level = {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
         level = self._adjust_level_by_structure(
             level=level,
             block_coverage_percent=block_coverage_percent,
@@ -1251,6 +1260,28 @@ class CreativityAgent(BaseCompetencyAgent):
                 "has_reframing": any(word in normalized for word in ("переформулир", "посмотр", "с другой стороны", "переосмыс")),
                 "has_combination": any(word in normalized for word in ("комбинир", "совмест", "сочет", "объединим")),
             }
+        )
+        elements["has_viable_idea"] = bool(
+            elements.get("has_alternatives")
+            or elements.get("has_originality")
+            or elements.get("has_experiments")
+            or elements.get("has_reframing")
+            or elements.get("has_combination")
+            or elements.get("covers_decision", False)
+            or elements.get("covers_implementation_plan", False)
+            or any(
+                phrase in normalized
+                for phrase in (
+                    "предлага",
+                    "можно сделать",
+                    "идея",
+                    "улучш",
+                    "автоматиз",
+                    "шаблон",
+                    "чек-лист",
+                    "дашборд",
+                )
+            )
         )
         return elements
 
@@ -1280,8 +1311,16 @@ class CreativityAgent(BaseCompetencyAgent):
         artifact_compliance_percent: int | None,
         missing_artifact_parts: list[str],
     ) -> str:
-        if not self.normalize_text(user_text):
+        normalized = self.normalize_text(user_text)
+        if not normalized:
             return "N/A"
+        has_viable_idea = bool(structural_elements.get("has_viable_idea"))
+        has_realization_signal = bool(
+            structural_elements.get("has_experiments")
+            or structural_elements.get("covers_implementation_plan", False)
+            or structural_elements.get("covers_success_metric", False)
+            or structural_elements.get("has_next_step")
+        )
         if (
             rubric_match_scores["L3"] > 0
             or (
@@ -1294,12 +1333,17 @@ class CreativityAgent(BaseCompetencyAgent):
         elif (
             rubric_match_scores["L2"] > 0
             or (
-                structural_elements.get("has_alternatives")
-                and (structural_elements.get("has_originality") or structural_elements.get("has_combination"))
+                has_viable_idea
+                and (
+                    structural_elements.get("has_alternatives")
+                    or structural_elements.get("has_originality")
+                    or structural_elements.get("has_combination")
+                )
+                and (structural_elements.get("has_criteria") or has_realization_signal)
             )
         ):
             level = "L2"
-        elif rubric_match_scores["L1"] > 0 or structural_elements.get("has_alternatives"):
+        elif rubric_match_scores["L1"] > 0 or has_viable_idea:
             level = "L1"
         else:
             level = "N/A"
@@ -1310,24 +1354,34 @@ class CreativityAgent(BaseCompetencyAgent):
                 block_coverage_percent=block_coverage_percent,
                 missing_required_blocks=missing_required_blocks,
             )
-            return self._adjust_level_by_artifact(
+            level = self._adjust_level_by_artifact(
                 level=level,
                 artifact_compliance_percent=artifact_compliance_percent,
                 missing_artifact_parts=missing_artifact_parts,
             )
-        if len(red_flags) >= 2:
-            return "N/A"
-        level = {"L3": "L2", "L2": "L1", "L1": "N/A"}.get(level, "N/A")
-        level = self._adjust_level_by_structure(
-            level=level,
-            block_coverage_percent=block_coverage_percent,
-            missing_required_blocks=missing_required_blocks,
-        )
-        return self._adjust_level_by_artifact(
-            level=level,
-            artifact_compliance_percent=artifact_compliance_percent,
-            missing_artifact_parts=missing_artifact_parts,
-        )
+        else:
+            hard_red_flags = [flag for flag in red_flags if flag in self._hard_red_flags()]
+            if len(hard_red_flags) >= 2:
+                return "N/A"
+            if hard_red_flags:
+                level = {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
+            level = self._adjust_level_by_structure(
+                level=level,
+                block_coverage_percent=block_coverage_percent,
+                missing_required_blocks=missing_required_blocks,
+            )
+            level = self._adjust_level_by_artifact(
+                level=level,
+                artifact_compliance_percent=artifact_compliance_percent,
+                missing_artifact_parts=missing_artifact_parts,
+            )
+
+        if level == "N/A" and has_viable_idea and not any(
+            flag in {"aggressive_tone", "responsibility_shift", "template_thinking"}
+            for flag in red_flags
+        ):
+            return "L1"
+        return level
 
 
 class CriticalThinkingAgent(BaseCompetencyAgent):
@@ -1344,6 +1398,21 @@ class CriticalThinkingAgent(BaseCompetencyAgent):
                 "has_tradeoffs": any(word in normalized for word in ("компромисс", "цена", "последств", "trade-off", "выигрыш")),
                 "has_validation": any(word in normalized for word in ("провер", "валид", "свер", "сравн", "контрольная точка")),
             }
+        )
+        elements["has_practical_reasoning"] = bool(
+            (
+                elements.get("has_next_step")
+                or elements.get("covers_next_step", False)
+                or elements.get("covers_decision", False)
+            )
+            and (
+                elements.get("has_risks")
+                or elements.get("has_questions")
+                or elements.get("has_validation")
+                or elements.get("has_data_reference")
+                or elements.get("has_predictive")
+                or elements.get("covers_facts", False)
+            )
         )
         return elements
 
@@ -1373,8 +1442,10 @@ class CriticalThinkingAgent(BaseCompetencyAgent):
         artifact_compliance_percent: int | None,
         missing_artifact_parts: list[str],
     ) -> str:
-        if not self.normalize_text(user_text):
+        normalized = self.normalize_text(user_text)
+        if not normalized:
             return "N/A"
+        has_practical_reasoning = bool(structural_elements.get("has_practical_reasoning"))
         if (
             rubric_match_scores["L3"] > 0
             or (
@@ -1388,13 +1459,26 @@ class CriticalThinkingAgent(BaseCompetencyAgent):
         elif (
             rubric_match_scores["L2"] > 0
             or (
-                structural_elements.get("has_criteria")
-                and structural_elements.get("has_risks")
-                and (structural_elements.get("has_data_reference") or structural_elements.get("has_validation"))
+                (
+                    structural_elements.get("has_criteria")
+                    or structural_elements.get("covers_decision", False)
+                    or structural_elements.get("has_next_step")
+                )
+                and (
+                    structural_elements.get("has_risks")
+                    or structural_elements.get("has_validation")
+                    or structural_elements.get("has_data_reference")
+                    or structural_elements.get("has_predictive")
+                )
             )
         ):
             level = "L2"
-        elif rubric_match_scores["L1"] > 0 or structural_elements.get("has_criteria") or structural_elements.get("has_data_reference"):
+        elif (
+            rubric_match_scores["L1"] > 0
+            or structural_elements.get("has_criteria")
+            or structural_elements.get("has_data_reference")
+            or has_practical_reasoning
+        ):
             level = "L1"
         else:
             level = "N/A"
@@ -1405,24 +1489,34 @@ class CriticalThinkingAgent(BaseCompetencyAgent):
                 block_coverage_percent=block_coverage_percent,
                 missing_required_blocks=missing_required_blocks,
             )
-            return self._adjust_level_by_artifact(
+            level = self._adjust_level_by_artifact(
                 level=level,
                 artifact_compliance_percent=artifact_compliance_percent,
                 missing_artifact_parts=missing_artifact_parts,
             )
-        if len(red_flags) >= 2:
-            return "N/A"
-        level = {"L3": "L2", "L2": "L1", "L1": "N/A"}.get(level, "N/A")
-        level = self._adjust_level_by_structure(
-            level=level,
-            block_coverage_percent=block_coverage_percent,
-            missing_required_blocks=missing_required_blocks,
-        )
-        return self._adjust_level_by_artifact(
-            level=level,
-            artifact_compliance_percent=artifact_compliance_percent,
-            missing_artifact_parts=missing_artifact_parts,
-        )
+        else:
+            hard_red_flags = [flag for flag in red_flags if flag in self._hard_red_flags()]
+            if len(hard_red_flags) >= 2:
+                return "N/A"
+            if hard_red_flags:
+                level = {"L3": "L2", "L2": "L1", "L1": "L1"}.get(level, level)
+            level = self._adjust_level_by_structure(
+                level=level,
+                block_coverage_percent=block_coverage_percent,
+                missing_required_blocks=missing_required_blocks,
+            )
+            level = self._adjust_level_by_artifact(
+                level=level,
+                artifact_compliance_percent=artifact_compliance_percent,
+                missing_artifact_parts=missing_artifact_parts,
+            )
+
+        if level == "N/A" and has_practical_reasoning and not any(
+            flag in {"aggressive_tone", "responsibility_shift", "risk_blindness", "no_validation"}
+            for flag in red_flags
+        ):
+            return "L1"
+        return level
 
 
 communication_agent = CommunicationAgent()

@@ -17,11 +17,29 @@ class Settings:
     db_user: str = os.getenv("DB_USER", "app_user")
     db_password: str = os.getenv("DB_PASSWORD", "")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+    deepseek_api_key_2: str = os.getenv("DEEPSEEK_API_KEY_2", "")
+    deepseek_api_key_3: str = os.getenv("DEEPSEEK_API_KEY_3", "")
+    deepseek_api_keys_raw: str = os.getenv("DEEPSEEK_API_KEYS", "")
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
     esco_api_enabled: bool = os.getenv("ESCO_API_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
     esco_api_base_url: str = os.getenv("ESCO_API_BASE_URL", "https://ec.europa.eu/esco/api")
     esco_api_version: str = os.getenv("ESCO_API_VERSION", "v1.2.0")
     esco_api_language: str = os.getenv("ESCO_API_LANGUAGE", "en")
+
+    @property
+    def deepseek_api_keys(self) -> list[str]:
+        values: list[str] = []
+        for key in (self.deepseek_api_key, self.deepseek_api_key_2, self.deepseek_api_key_3):
+            cleaned = str(key or "").strip()
+            if cleaned and cleaned not in values:
+                values.append(cleaned)
+        raw_pool = str(self.deepseek_api_keys_raw or "").strip()
+        if raw_pool:
+            for item in raw_pool.split(","):
+                cleaned = item.strip()
+                if cleaned and cleaned not in values:
+                    values.append(cleaned)
+        return values
 
 settings = Settings()

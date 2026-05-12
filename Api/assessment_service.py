@@ -55,6 +55,7 @@ class AssessmentTurnReply:
     history_use_count: int = 0
     history_flag: str | None = None
     history_is_new: bool = False
+    is_dialog_case: bool = False
     pending_auto_finish: bool = False
     auto_finish_delay_ms: int | None = None
 
@@ -78,6 +79,13 @@ class AssessmentService:
 
     def _utc_now(self) -> datetime:
         return datetime.utcnow()
+
+    def _get_is_dialog_case_for_session_case(self, connection, session_case_id: int | None) -> bool:
+        if not session_case_id:
+            return False
+        case_row = self._get_case_for_session_case(connection, session_case_id)
+        methodical_context = self._get_case_methodical_context(connection, case_row)
+        return deepseek_client._is_dialog_interactivity_mode(methodical_context.get("interactivity_mode"))
 
     def _build_prompt_lab_case_preview_cache_key(
         self,
@@ -233,10 +241,7 @@ class AssessmentService:
         interactivity_mode: str | None = None,
     ) -> str:
         if deepseek_client._is_dialog_interactivity_mode(interactivity_mode):
-            return deepseek_client._build_dialog_case_reply(
-                user_message=user_message,
-                dialogue=[{"role": row["role"], "content": row["message_text"]} for row in dialogue_rows],
-            )
+            return repeated_message
         previous_assistant_messages = [
             str(row["message_text"] or "").strip()
             for row in dialogue_rows
@@ -1026,6 +1031,7 @@ class AssessmentService:
         )
         prompt_text = deepseek_client.generate_case_prompt(
             full_name=user.full_name,
+            user_identifier=str(user.id),
             position=user.raw_position or user.job_description,
             duties=user.normalized_duties or user.raw_duties,
             company_industry=user.company_industry,
@@ -1580,6 +1586,7 @@ class AssessmentService:
         )
         final_system_prompt = deepseek_client.generate_case_prompt(
             full_name=user_data.get("full_name"),
+            user_identifier=str(user_data.get("id") or ""),
             position=user_data.get("position"),
             duties=user_data.get("duties"),
             company_industry=user_data.get("company_industry"),
@@ -1606,6 +1613,16 @@ class AssessmentService:
             case_task=artifacts.get("personalized_task") or "",
             interactivity_mode=methodical_context.get("interactivity_mode"),
         )
+        is_dialog_case = deepseek_client._is_dialog_interactivity_mode(methodical_context.get("interactivity_mode"))
+        prompt_lab_methodical_context = {
+            **methodical_context,
+            "user_id": user_data.get("id"),
+            "role_name": user_data.get("role_name"),
+            "position": user_data.get("position"),
+            "duties": user_data.get("duties"),
+            "company_industry": user_data.get("company_industry"),
+            "user_profile": user_data.get("user_profile"),
+        }
         return {
             "user": user_data,
             "case": case_data,
@@ -1617,13 +1634,14 @@ class AssessmentService:
                 or ""
             ).strip() or None,
             "opening_message": artifacts.get("opening_message") or "",
-            "counterpart_opening_message": counterpart_opening_message or None,
+            "counterpart_opening_message": (counterpart_opening_message or None) if is_dialog_case else None,
+            "is_dialog_case": is_dialog_case,
             "system_prompt": final_system_prompt,
             "interviewer_prompt_text": interviewer_prompt_row["prompt_text"] if interviewer_prompt_row else None,
             "interviewer_prompt_name": interviewer_prompt_row["prompt_name"] if interviewer_prompt_row else None,
             "interviewer_prompt_code": interviewer_prompt_row["prompt_code"] if interviewer_prompt_row else None,
             "interviewer_prompt_version": interviewer_prompt_row["prompt_version"] if interviewer_prompt_row else None,
-            "methodical_context": methodical_context,
+            "methodical_context": prompt_lab_methodical_context,
         }
 
     def simulate_prompt_lab_dialog_turn(
@@ -1636,6 +1654,11 @@ class AssessmentService:
         dialogue: list[dict],
         interviewer_prompt_text: str | None,
         user_message: str,
+        role_name: str | None = None,
+        position: str | None = None,
+        duties: str | None = None,
+        company_industry: str | None = None,
+        user_profile: dict | None = None,
     ) -> dict:
         normalized_user_message = str(user_message or "").strip()
         if not normalized_user_message:
@@ -1704,9 +1727,11 @@ class AssessmentService:
 
         if str(context.get("interactivity_mode") or "").strip().lower() == "1 ход" and user_message_count >= 1:
             return {
-                "assistant_message": "Ответ зафиксирован. Можете завершить кейс, когда будете готовы.",
+                "assistant_message": "Ответ зафиксирован. Завершаем кейс автоматически.",
                 "case_completed": False,
-                "stop_reason": "single_turn_no_follow_up",
+                "stop_reason": "single_turn_auto_finish",
+                "pending_auto_finish": True,
+                "auto_finish_delay_ms": self.CASE_AUTO_FINISH_DELAY_MS,
             }
 
         turn = deepseek_client.evaluate_case_turn(
@@ -1714,17 +1739,26 @@ class AssessmentService:
             dialogue=normalized_dialogue,
             case_title=case_title,
             case_skills=case_skills,
+            user_identifier=str((context.get("user_id") or "")).strip() or None,
             interactivity_mode=context.get("interactivity_mode"),
             format_control_rules=context.get("format_control_rules"),
             recommended_answer_length=context.get("recommended_answer_length"),
             interviewer_prompt_override=interviewer_prompt_text,
             fallback_user_message=normalized_user_message,
+            role_name=role_name,
+            position=position,
+            duties=duties,
+            company_industry=company_industry,
+            user_profile=user_profile,
         )
         dialogue_rows = [
             {"role": item["role"], "message_text": item["content"]}
             for item in normalized_dialogue
         ]
-        if self._needs_non_repeating_follow_up(turn.assistant_message, dialogue_rows):
+        if (
+            not deepseek_client._is_dialog_interactivity_mode(context.get("interactivity_mode"))
+            and self._needs_non_repeating_follow_up(turn.assistant_message, dialogue_rows)
+        ):
             turn.assistant_message = self._build_non_repeating_follow_up(
                 repeated_message=turn.assistant_message,
                 user_message=normalized_user_message,
@@ -2040,6 +2074,7 @@ class AssessmentService:
                         plan.current_case_started_at,
                         plan.current_case_time_limit_minutes,
                     ),
+                    is_dialog_case=self._get_is_dialog_case_for_session_case(connection, plan.current_session_case_id),
                     **history_fields,
                 )
 
@@ -2093,6 +2128,9 @@ class AssessmentService:
                     started_row["started_at"] if started_row else plan.current_case_started_at,
                     plan.current_case_time_limit_minutes,
                 ),
+                is_dialog_case=deepseek_client._is_dialog_interactivity_mode(
+                    self._get_case_methodical_context(connection, case_row).get("interactivity_mode"),
+                ),
                 **history_fields,
             )
 
@@ -2100,7 +2138,8 @@ class AssessmentService:
         with get_connection() as connection:
             session_row = connection.execute(
                 """
-                SELECT us.id, us.session_code, us.user_id, u.full_name, u.job_description,
+                SELECT us.id, us.session_code, us.user_id, us.role_id, u.full_name, u.job_description,
+                       u.company_industry, p.id AS active_profile_id,
                        p.raw_position, p.raw_duties, p.normalized_duties
                 FROM user_sessions us
                 JOIN users u ON u.id = us.user_id
@@ -2113,6 +2152,21 @@ class AssessmentService:
             ).fetchone()
             if session_row is None:
                 raise ValueError("Assessment session not found")
+
+            role_row = connection.execute(
+                "SELECT name FROM roles WHERE id = %s",
+                (session_row["role_id"],),
+            ).fetchone() if session_row.get("role_id") else None
+            role_name = role_row["name"] if role_row else None
+            profile_row = connection.execute(
+                """
+                SELECT *
+                FROM user_role_profiles
+                WHERE id = %s
+                """,
+                (session_row["active_profile_id"],),
+            ).fetchone() if session_row.get("active_profile_id") else None
+            user_profile = dict(profile_row) if profile_row else None
 
             plan = self._build_plan(connection, session_row["id"], session_code)
             if plan.current_session_case_id is None or plan.current_case_title is None:
@@ -2437,6 +2491,7 @@ class AssessmentService:
                         plan.current_case_started_at,
                         plan.current_case_time_limit_minutes,
                     ),
+                    is_dialog_case=is_dialog_case,
                     pending_auto_finish=False,
                     auto_finish_delay_ms=None,
                     **history_fields,
@@ -2478,6 +2533,7 @@ class AssessmentService:
                         plan.current_case_started_at,
                         plan.current_case_time_limit_minutes,
                     ),
+                    is_dialog_case=is_dialog_case,
                     pending_auto_finish=False,
                     auto_finish_delay_ms=None,
                     **history_fields,
@@ -2549,12 +2605,24 @@ class AssessmentService:
                         plan.current_case_started_at,
                         plan.current_case_time_limit_minutes,
                     ),
+                    is_dialog_case=is_dialog_case,
                     pending_auto_finish=True,
                     auto_finish_delay_ms=self.CASE_AUTO_FINISH_DELAY_MS,
                     **history_fields,
                 )
 
             if str(methodical_context.get("interactivity_mode") or "").strip().lower() == "1 ход" and user_message_count >= 1:
+                connection.execute(
+                    """
+                    INSERT INTO session_case_messages (session_case_id, session_id, role, message_text)
+                    VALUES (%s, %s, 'assistant', %s)
+                    """,
+                    (
+                        plan.current_session_case_id,
+                        session_row["id"],
+                        "Ответ зафиксирован. Завершаем кейс автоматически.",
+                    ),
+                )
                 connection.commit()
                 return AssessmentTurnReply(
                     session_code=session_code,
@@ -2563,7 +2631,7 @@ class AssessmentService:
                     case_title=plan.current_case_title,
                     case_number=plan.current_case_number,
                     total_cases=plan.total_cases,
-                    message="Ответ зафиксирован. Можете завершить кейс, когда будете готовы.",
+                    message="Ответ зафиксирован. Завершаем кейс автоматически.",
                     case_completed=False,
                     assessment_completed=False,
                     result_status=None,
@@ -2576,8 +2644,9 @@ class AssessmentService:
                         plan.current_case_started_at,
                         plan.current_case_time_limit_minutes,
                     ),
-                    pending_auto_finish=False,
-                    auto_finish_delay_ms=None,
+                    is_dialog_case=False,
+                    pending_auto_finish=True,
+                    auto_finish_delay_ms=self.CASE_AUTO_FINISH_DELAY_MS,
                     **history_fields,
                 )
 
@@ -2586,13 +2655,22 @@ class AssessmentService:
                 dialogue=[{"role": row["role"], "content": row["message_text"]} for row in dialogue_rows],
                 case_title=case_row["title"],
                 case_skills=self._get_case_skill_names(connection, plan.current_session_case_id),
+                user_identifier=str(session_row["user_id"]),
                 interactivity_mode=methodical_context.get("interactivity_mode"),
                 format_control_rules=methodical_context.get("format_control_rules"),
                 recommended_answer_length=methodical_context.get("recommended_answer_length"),
                 fallback_user_message=message,
+                role_name=role_name,
+                position=session_row["raw_position"] or session_row["job_description"],
+                duties=session_row["normalized_duties"] or session_row["raw_duties"],
+                company_industry=session_row["company_industry"],
+                user_profile=user_profile,
             )
 
-            if self._needs_non_repeating_follow_up(turn.assistant_message, dialogue_rows):
+            if (
+                not deepseek_client._is_dialog_interactivity_mode(methodical_context.get("interactivity_mode"))
+                and self._needs_non_repeating_follow_up(turn.assistant_message, dialogue_rows)
+            ):
                 turn.assistant_message = self._build_non_repeating_follow_up(
                     repeated_message=turn.assistant_message,
                     user_message=message,
@@ -2640,6 +2718,7 @@ class AssessmentService:
                     plan.current_case_started_at,
                     plan.current_case_time_limit_minutes,
                 ),
+                is_dialog_case=True,
                 **history_fields,
             )
 
@@ -2701,6 +2780,7 @@ class AssessmentService:
                     plan.current_case_time_limit_minutes,
                 ),
                 time_expired=time_expired,
+                is_dialog_case=self._get_is_dialog_case_for_session_case(connection, plan.current_session_case_id),
                 **self._get_session_case_history_fields(connection, plan.current_session_case_id),
             )
 
@@ -2758,6 +2838,9 @@ class AssessmentService:
                 next_plan.current_case_time_limit_minutes,
             ),
             time_expired=time_expired,
+            is_dialog_case=deepseek_client._is_dialog_interactivity_mode(
+                self._get_case_methodical_context(connection, next_case_row).get("interactivity_mode"),
+            ),
             **self._get_session_case_history_fields(connection, next_plan.current_session_case_id),
         )
 

@@ -4922,6 +4922,33 @@ textarea {
     padding: 0 0 4px;
 }
 
+.interview-panel.single-turn-mode .interview-main {
+    display: flex;
+    flex-direction: column;
+    align-content: start;
+}
+
+.interview-panel.single-turn-mode .interview-messages {
+    order: 2;
+    min-height: 0;
+    max-height: none;
+    padding: 0;
+    gap: 16px;
+    overflow: visible;
+}
+
+.interview-panel.single-turn-mode .interview-messages:empty {
+    display: none;
+}
+
+.interview-panel.single-turn-mode .interview-summary {
+    order: 1;
+}
+
+.interview-panel.single-turn-mode .interview-form {
+    order: 3;
+}
+
 .interview-form {
     position: static;
     bottom: auto;
