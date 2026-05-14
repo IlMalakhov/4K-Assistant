@@ -11,8 +11,8 @@
 #let success = rgb("#2da430")
 #let warning = rgb("#ea580c")
 
-#let heading-fonts = ("Manrope", "Inter", "Arial", "DejaVu Sans")
-#let body-fonts = ("Inter", "Arial", "DejaVu Sans")
+#let heading-fonts = ("Manrope", "Inter", "Noto Sans")
+#let body-fonts = ("Inter", "Noto Sans")
 
 #set document(title: data.title, author: "Agent_4K")
 #set page(

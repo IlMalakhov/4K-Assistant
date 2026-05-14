@@ -206,30 +206,46 @@ def _typst_binary() -> str:
     raise TypstUnavailableError("Typst binary was not found")
 
 
+def _font_paths() -> list[str]:
+    fonts_path = Path(__file__).with_name("pdf_assets") / "fonts"
+    return [str(fonts_path)] if fonts_path.exists() else []
+
+
 def _render_with_python_package(source_path: Path, temp_dir: Path) -> bytes:
     try:
         import typst
     except ImportError as exc:
         raise TypstUnavailableError("Typst Python package was not found") from exc
 
+    font_paths = _font_paths()
     try:
-        return typst.compile(str(source_path), root=str(temp_dir))
+        return typst.compile(
+            str(source_path),
+            root=str(temp_dir),
+            font_paths=font_paths,
+            ignore_system_fonts=bool(font_paths),
+        )
     except Exception as exc:
         raise TypstRenderError(str(exc)) from exc
 
 
 def _render_with_cli(source_path: Path, output_path: Path, temp_dir: Path, timeout_seconds: float) -> bytes:
     typst_binary = _typst_binary()
+    font_paths = _font_paths()
+    command = [
+        typst_binary,
+        "compile",
+        "--root",
+        str(temp_dir),
+    ]
+    for font_path in font_paths:
+        command.extend(["--font-path", font_path])
+    if font_paths:
+        command.append("--ignore-system-fonts")
+    command.extend([str(source_path), str(output_path)])
     try:
         result = subprocess.run(
-            [
-                typst_binary,
-                "compile",
-                "--root",
-                str(temp_dir),
-                str(source_path),
-                str(output_path),
-            ],
+            command,
             cwd=temp_dir,
             capture_output=True,
             text=True,
