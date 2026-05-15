@@ -90,15 +90,18 @@ class AdminReportExpertExportService:
         from reportlab.pdfbase.ttfonts import TTFont
 
         font_candidates = [
+            Path(__file__).resolve().parent / "pdf_assets" / "fonts" / "NotoSans.ttf",
+            Path(__file__).resolve().parent / "pdf_assets" / "fonts" / "Inter.ttf",
+            Path(__file__).resolve().parent / "pdf_assets" / "fonts" / "Manrope.ttf",
             "/Library/Fonts/Arial Unicode.ttf",
             "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
             "/System/Library/Fonts/Supplemental/Arial.ttf",
         ]
-        font_path = next((path for path in font_candidates if Path(path).exists()), None)
+        font_path = next((Path(path) for path in font_candidates if Path(path).exists()), None)
         if font_path:
             font_name = "Agent4KExpertUnicode"
             try:
-                pdfmetrics.registerFont(TTFont(font_name, font_path))
+                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
                 return font_name
             except Exception:
                 pass
@@ -106,23 +109,13 @@ class AdminReportExpertExportService:
 
     def _profile_rows(self, detail) -> list[str]:
         profile = detail.profile_summary
-        processes = ", ".join(profile.processes) if profile and profile.processes else "—"
-        tasks = ", ".join(profile.tasks) if profile and profile.tasks else "—"
-        stakeholders = ", ".join(profile.stakeholders) if profile and profile.stakeholders else "—"
-        constraints = ", ".join(profile.constraints) if profile and profile.constraints else "—"
         return [
-            _row([_cell("Пользователь", "Label"), _cell(detail.full_name or "—", "Text")], 22),
+            _row([_cell("ФИО", "Label"), _cell(detail.full_name or "—", "Text")], 22),
+            _row([_cell("Телефон", "Label"), _cell(detail.phone or "—", "Text")], 22),
+            _row([_cell("Telegram", "Label"), _cell(detail.telegram or "—", "Text")], 22),
+            _row([_cell("Область работы компании", "Label"), _cell(detail.group_name or "—", "Text")], 22),
+            _row([_cell("Должность", "Label"), _cell((profile.position if profile else None) or detail.role_name or "—", "Text")], 22),
             _row([_cell("Роль", "Label"), _cell(detail.role_name or "—", "Text")], 22),
-            _row([_cell("Сфера / группа", "Label"), _cell(detail.group_name or "—", "Text")], 22),
-            _row([_cell("Должность в профиле", "Label"), _cell((profile.position if profile else None) or "—", "Text")], 22),
-            _row([_cell("Обязанности", "Label"), _cell((profile.duties if profile else None) or "—", "WrappedText")], _estimate_height_points((profile.duties if profile else "") or "—", base=24)),
-            _row([_cell("Домен", "Label"), _cell((profile.domain if profile else None) or "—", "Text")], 22),
-            _row([_cell("Процессы", "Label"), _cell(processes, "WrappedText")], _estimate_height_points(processes, base=24)),
-            _row([_cell("Задачи", "Label"), _cell(tasks, "WrappedText")], _estimate_height_points(tasks, base=24)),
-            _row([_cell("Стейкхолдеры", "Label"), _cell(stakeholders, "WrappedText")], _estimate_height_points(stakeholders, base=24)),
-            _row([_cell("Ограничения", "Label"), _cell(constraints, "WrappedText")], _estimate_height_points(constraints, base=24)),
-            _row([_cell("ID пользователя", "Label"), _cell(str(detail.user_id), "NumberCell", "Number")], 22),
-            _row([_cell("ID сессии", "Label"), _cell(str(detail.session_id), "NumberCell", "Number")], 22),
         ]
 
     def _case_dialogue_rows(self, case_item, competency: str) -> list[str]:
@@ -281,8 +274,8 @@ class AdminReportExpertExportService:
                 [
                     _cell("Пользователь", "Label"),
                     _cell(detail.full_name or "—", "Text"),
-                    _cell("ID сессии", "Label"),
-                    _cell(str(detail.session_id), "NumberCell", "Number"),
+                    _cell("Роль", "Label"),
+                    _cell(detail.role_name or "—", "Text"),
                     _cell(),
                     _cell(),
                     _cell(),
@@ -468,23 +461,18 @@ class AdminReportExpertExportService:
 
         story = [
             Paragraph("Экспертная выгрузка по ассессменту", title_style),
-            p(f"Пользователь: {detail.full_name or '—'}"),
-            p(f"Роль: {detail.role_name or '—'}"),
-            p(f"Сфера / группа: {detail.group_name or '—'}"),
-            p(f"ID сессии: {detail.session_id}"),
             Spacer(1, 6),
             Paragraph("Профиль пользователя", h2_style),
         ]
 
         profile = detail.profile_summary
         profile_rows = [
-            ["Должность", profile.position if profile else "—"],
-            ["Обязанности", profile.duties if profile else "—"],
-            ["Домен", profile.domain if profile else "—"],
-            ["Процессы", ", ".join(profile.processes) if profile and profile.processes else "—"],
-            ["Задачи", ", ".join(profile.tasks) if profile and profile.tasks else "—"],
-            ["Стейкхолдеры", ", ".join(profile.stakeholders) if profile and profile.stakeholders else "—"],
-            ["Ограничения", ", ".join(profile.constraints) if profile and profile.constraints else "—"],
+            ["ФИО", detail.full_name or "—"],
+            ["Телефон", detail.phone or "—"],
+            ["Telegram", detail.telegram or "—"],
+            ["Область работы компании", detail.group_name or "—"],
+            ["Должность", (profile.position if profile else None) or detail.role_name or "—"],
+            ["Роль", detail.role_name or "—"],
         ]
         profile_table = Table(
             [[p(label, small_style), p(value or "—")] for label, value in profile_rows],
@@ -700,21 +688,17 @@ class AdminReportExpertExportService:
 
             story.extend([
                 Paragraph(detail.full_name or "Без имени", h2_style),
-                p(f"Роль: {detail.role_name or '—'}"),
-                p(f"Сфера / группа: {detail.group_name or '—'}"),
-                p(f"ID сессии: {detail.session_id}"),
                 Spacer(1, 4),
             ])
 
             profile = detail.profile_summary
             profile_rows = [
-                ["Должность", profile.position if profile else "—"],
-                ["Обязанности", profile.duties if profile else "—"],
-                ["Домен", profile.domain if profile else "—"],
-                ["Процессы", ", ".join(profile.processes) if profile and profile.processes else "—"],
-                ["Задачи", ", ".join(profile.tasks) if profile and profile.tasks else "—"],
-                ["Стейкхолдеры", ", ".join(profile.stakeholders) if profile and profile.stakeholders else "—"],
-                ["Ограничения", ", ".join(profile.constraints) if profile and profile.constraints else "—"],
+                ["ФИО", detail.full_name or "—"],
+                ["Телефон", detail.phone or "—"],
+                ["Telegram", detail.telegram or "—"],
+                ["Область работы компании", detail.group_name or "—"],
+                ["Должность", (profile.position if profile else None) or detail.role_name or "—"],
+                ["Роль", detail.role_name or "—"],
             ]
             profile_table = Table(
                 [[p(label, small_style), p(value or "—")] for label, value in profile_rows],

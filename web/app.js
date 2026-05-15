@@ -6157,8 +6157,8 @@ const renderAdminReports = () => {
     ).length;
     adminReportsExpertGroupButton.disabled = completedCount <= 0;
     adminReportsExpertGroupButton.textContent = selectedCompletedCount > 0
-      ? 'Выбрать пользователей (' + selectedCompletedCount + ')'
-      : 'Выбрать пользователей';
+      ? 'Выгрузить ассесменты (' + selectedCompletedCount + ')'
+      : 'Выгрузить ассесменты';
   }
 };
 
