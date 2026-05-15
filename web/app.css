@@ -4103,7 +4103,7 @@ textarea {
 .admin-report-row {
     display: grid;
     grid-template-columns:
-        minmax(220px, 1.3fr) minmax(220px, 1fr)
+        110px minmax(220px, 1.3fr) minmax(220px, 1fr)
         130px 170px 110px 110px 132px;
     gap: 18px;
     align-items: center;
@@ -4163,6 +4163,40 @@ textarea {
     transform: translateY(-1px);
     border-color: rgba(70, 72, 212, 0.28);
     outline: none;
+}
+
+.admin-report-select-cell {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.admin-report-select-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(70, 72, 212, 0.18);
+    background: rgba(70, 72, 212, 0.08);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+}
+
+.admin-report-select-toggle.is-disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.admin-report-select-checkbox {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex: 0 0 auto;
 }
 
 .admin-report-user {
@@ -4669,6 +4703,10 @@ textarea {
     .admin-reports-columns,
     .admin-report-row {
         grid-template-columns: 1fr;
+    }
+
+    .admin-report-select-cell {
+        order: -1;
     }
 }
 

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/web/app.css?v=20260509-chat-complete-hide">
+  <link rel="stylesheet" href="/web/app.css?v=20260515-admin-expert-group-picker-modal">
       <!--Favicons-->
   <link rel="icon" href="/favicons/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png">
@@ -706,43 +706,49 @@
       </div>
 
       <div class="admin-shell admin-reports-shell">
-        <section class="admin-hero-card admin-reports-hero">
-          <div>
-            <h2 id="admin-reports-title">Отдельные отчеты</h2>
-            <p id="admin-reports-subtitle">Управление и анализ индивидуальных результатов тестирования персонала.</p>
-          </div>
-          <div class="admin-reports-actions">
-            <label class="admin-search-field">
-              <span>Поиск</span>
-              <input id="admin-reports-search" type="search" placeholder="Поиск по отчетам...">
-            </label>
-            <button id="admin-reports-pdf-button" type="button" class="ghost-button admin-export-button">Печать PDF</button>
-          </div>
-        </section>
+          <section class="admin-hero-card admin-reports-hero">
+            <div>
+              <h2 id="admin-reports-title">Отдельные отчеты</h2>
+              <p id="admin-reports-subtitle">Управление и анализ индивидуальных результатов тестирования персонала.</p>
+            </div>
+            <div class="admin-reports-actions">
+              <label class="admin-search-field">
+                <span>Поиск</span>
+                <input id="admin-reports-search" type="search" placeholder="Поиск по отчетам...">
+              </label>
+              <button
+                id="admin-reports-expert-group-button"
+                type="button"
+                class="ghost-button admin-export-button"
+              >Выбрать пользователей</button>
+              <button id="admin-reports-pdf-button" type="button" class="ghost-button admin-export-button">Печать PDF</button>
+            </div>
+          </section>
 
-        <section class="admin-reports-table-card">
-          <div class="admin-reports-table-head">
-            <div class="admin-reports-columns" aria-hidden="true">
-              <span>Сотрудник / ID</span>
-              <span>Группа / роль</span>
-              <span>Статус</span>
-              <span>4K score</span>
-              <span>Тип MBTI</span>
-              <span>Дата</span>
-              <span>Отчет PDF</span>
+          <section class="admin-reports-table-card">
+            <div class="admin-reports-table-head">
+              <div class="admin-reports-columns" aria-hidden="true">
+                <span>Выбор</span>
+                <span>Сотрудник / ID</span>
+                <span>Группа / роль</span>
+                <span>Статус</span>
+                <span>4K score</span>
+                <span>Тип MBTI</span>
+                <span>Дата</span>
+                <span>Отчет PDF</span>
+              </div>
+              <div id="admin-reports-found" class="admin-reports-found">Найдено: 0</div>
             </div>
-            <div id="admin-reports-found" class="admin-reports-found">Найдено: 0</div>
-          </div>
-          <div id="admin-reports-list" class="admin-reports-list"></div>
-          <div class="admin-reports-pagination">
-            <span id="admin-reports-page-summary" class="admin-reports-page-summary">Показано 0 из 0 отчетов</span>
-            <div class="admin-reports-pagination-controls">
-              <button id="admin-reports-prev-button" type="button" class="ghost-button compact-ghost">Назад</button>
-              <span id="admin-reports-page-indicator" class="admin-reports-page-indicator">1 / 1</span>
-              <button id="admin-reports-next-button" type="button" class="ghost-button compact-ghost">Вперед</button>
+            <div id="admin-reports-list" class="admin-reports-list"></div>
+            <div class="admin-reports-pagination">
+              <span id="admin-reports-page-summary" class="admin-reports-page-summary">Показано 0 из 0 отчетов</span>
+              <div class="admin-reports-pagination-controls">
+                <button id="admin-reports-prev-button" type="button" class="ghost-button compact-ghost">Назад</button>
+                <span id="admin-reports-page-indicator" class="admin-reports-page-indicator">1 / 1</span>
+                <button id="admin-reports-next-button" type="button" class="ghost-button compact-ghost">Вперед</button>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
 
         <section class="admin-reports-summary-card">
           <div>
@@ -752,6 +758,23 @@
           <strong id="admin-reports-summary-score">0%</strong>
         </section>
       </div>
+
+      <dialog id="admin-reports-group-dialog" class="admin-prompt-lab-case-dialog">
+        <form method="dialog" class="admin-prompt-lab-case-dialog-card">
+          <div class="admin-prompt-lab-case-dialog-head">
+            <div>
+              <p class="section-label accent-label">Выбор пользователей</p>
+              <h3>Групповая выгрузка для эксперта</h3>
+            </div>
+            <button id="admin-reports-group-dialog-close" type="submit" class="ghost-button compact-ghost">Закрыть</button>
+          </div>
+          <div id="admin-reports-group-dialog-summary" class="admin-prompt-lab-case-picker-summary">Выберите завершенные ассессменты для выгрузки.</div>
+          <div id="admin-reports-group-dialog-list" class="admin-prompt-lab-case-dialog-list"></div>
+          <div class="admin-prompt-lab-actions">
+            <button id="admin-reports-group-dialog-export" type="button" class="primary-button compact-primary">Скачать архив</button>
+          </div>
+        </form>
+      </dialog>
     </section>
 
     <section class="panel admin-prompt-lab-panel hidden" id="admin-prompt-lab-panel">
@@ -979,6 +1002,7 @@
         <div class="brand dashboard-brand">Отчет по оценке</div>
         <div class="dashboard-topbar-actions">
           <button id="admin-report-detail-pdf-button" class="ghost-button compact-ghost" type="button">Скачать PDF</button>
+          <button id="admin-report-detail-expert-pdf-button" class="ghost-button compact-ghost" type="button">Эксперт PDF</button>
           <button id="admin-report-detail-dialogues-pdf-button" class="ghost-button compact-ghost" type="button">Скачать все диалоги</button>
           <button id="admin-report-detail-back-button" class="ghost-button compact-ghost" type="button">Назад</button>
         </div>
@@ -1538,6 +1562,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
-  <script src="/web/app.js?v=20260509-chat-complete-hide" defer></script>
+  <script src="/web/app.js?v=20260515-admin-expert-group-picker-modal" defer></script>
 </body>
 </html>

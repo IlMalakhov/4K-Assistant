@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response as FastAPIRespon
 from fastapi.responses import Response
 
 from Api.admin_report_dialogue_pdf_service import admin_report_dialogue_pdf_service
+from Api.admin_report_expert_export_service import admin_report_expert_export_service
 from Api.admin_reports_pdf_service import admin_reports_pdf_service
 from Api.assessment_service import assessment_service
 from Api.agent import interviewer_agent
@@ -47,6 +48,7 @@ from Api.schemas import (
     AdminReportDetailResponse,
     AdminDetailedReportsResponse,
     AdminExpertCommentUpdateRequest,
+    AdminExpertGroupExportRequest,
     AdminInsightCard,
     AdminMetricCard,
     PromptLabCaseOption,
@@ -2432,6 +2434,162 @@ def download_admin_report_dialogue_pdf(session_id: int, request: Request) -> Res
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                f'filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
+@router.get("/admin/reports/{session_id}/expert.xls")
+def download_admin_report_expert_excel(session_id: int, request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    user = web_session_service.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Admin session not found")
+    with get_connection() as connection:
+        if not _is_admin_user(connection, user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        detail = _build_admin_report_detail(connection, session_id)
+        filename, excel_bytes = admin_report_expert_export_service.build_excel(detail)
+
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.ms-excel",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                f'filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
+@router.get("/admin/reports/{session_id}/expert.pdf")
+def download_admin_report_expert_pdf(session_id: int, request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    user = web_session_service.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Admin session not found")
+    with get_connection() as connection:
+        if not _is_admin_user(connection, user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        try:
+            detail = _build_admin_report_detail(connection, session_id)
+            filename, pdf_bytes = admin_report_expert_export_service.build_pdf(detail)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                f'filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
+@router.post("/admin/reports/expert-group.zip")
+def download_admin_reports_expert_group_zip(payload: AdminExpertGroupExportRequest, request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    user = web_session_service.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Admin session not found")
+    session_ids = [int(session_id) for session_id in payload.session_ids if int(session_id) > 0]
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="No assessment sessions selected")
+
+    with get_connection() as connection:
+        if not _is_admin_user(connection, user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        session_rows = connection.execute(
+            """
+            SELECT id
+            FROM user_sessions
+            WHERE assessment_code = 'competencies_4k'
+              AND status = 'completed'
+              AND id = ANY(%s)
+            ORDER BY finished_at DESC NULLS LAST, id DESC
+            """,
+            (session_ids,),
+        ).fetchall()
+        completed_session_ids = [int(row["id"]) for row in session_rows]
+        if not completed_session_ids:
+            raise HTTPException(status_code=400, detail="No completed assessments found in selection")
+
+        details = [_build_admin_report_detail(connection, session_id) for session_id in completed_session_ids]
+        filename, zip_bytes = admin_report_expert_export_service.build_group_pdf_bundle(details)
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                f'filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
+@router.get("/admin/reports/export/expert-group.zip")
+def download_admin_reports_expert_group_zip_get(request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    user = web_session_service.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Admin session not found")
+    raw_parts: list[str] = []
+    for raw_value in request.query_params.getlist("session_ids"):
+        if raw_value is None:
+            continue
+        raw_parts.extend(part.strip() for part in str(raw_value).split(","))
+    normalized_session_ids: list[int] = []
+    for part in raw_parts:
+        if not part:
+            continue
+        if not part.isdigit():
+            continue
+        value = int(part)
+        if value > 0:
+            normalized_session_ids.append(value)
+    if not normalized_session_ids:
+        raise HTTPException(status_code=400, detail="No assessment sessions selected")
+
+    with get_connection() as connection:
+        if not _is_admin_user(connection, user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        session_rows = connection.execute(
+            """
+            SELECT id
+            FROM user_sessions
+            WHERE assessment_code = 'competencies_4k'
+              AND status = 'completed'
+              AND id = ANY(%s)
+            ORDER BY finished_at DESC NULLS LAST, id DESC
+            """,
+            (normalized_session_ids,),
+        ).fetchall()
+        completed_session_ids = [int(row["id"]) for row in session_rows]
+        if not completed_session_ids:
+            raise HTTPException(status_code=400, detail="No completed assessments found in selection")
+
+        details = [_build_admin_report_detail(connection, session_id) for session_id in completed_session_ids]
+        filename, zip_bytes = admin_report_expert_export_service.build_group_pdf_bundle(details)
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
         headers={
             "Content-Disposition": (
                 "attachment; "

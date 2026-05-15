@@ -834,6 +834,10 @@ class AdminExpertCommentUpdateRequest(BaseModel):
     expert_assessed_at: datetime | None = None
 
 
+class AdminExpertGroupExportRequest(BaseModel):
+    session_ids: list[int] = Field(default_factory=list)
+
+
 class UserProfileSummaryResponse(BaseModel):
     user: UserResponse
     total_assessments: int
