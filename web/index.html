@@ -100,10 +100,8 @@
       </div>
 
       <div class="dashboard-hero">
-        <div>
-          <h2 id="dashboard-greeting">Добро пожаловать</h2>
-          <p class="dashboard-subtitle">Ваш текущий прогресс развития компетенций за этот квартал</p>
-        </div>
+        <h2 id="dashboard-greeting">Добро пожаловать</h2>
+        <p class="dashboard-subtitle">Ваш текущий прогресс развития компетенций за этот квартал</p>
       </div>
 
       <section class="dashboard-section">
@@ -346,7 +344,6 @@
           </div>
           <div class="admin-reports-actions">
             <label class="admin-search-field">
-              <span>Поиск по кейсам</span>
               <input id="admin-methodology-search" type="search" placeholder="Поиск по кейсам...">
             </label>
           </div>
@@ -378,11 +375,9 @@
               <div class="admin-reports-table-head">
                 <div class="admin-reports-columns admin-methodology-columns" aria-hidden="true">
                   <span>Название</span>
-                  <span>ID</span>
                   <span>Роли</span>
                   <span>4K навыки</span>
                   <span>Сложность</span>
-                  <span>Время</span>
                   <span>Статус / QA</span>
                 </div>
               </div>
@@ -713,7 +708,6 @@
             </div>
             <div class="admin-reports-actions">
               <label class="admin-search-field">
-                <span>Поиск</span>
                 <input id="admin-reports-search" type="search" placeholder="Поиск по отчетам...">
               </label>
               <button
@@ -728,7 +722,7 @@
           <section class="admin-reports-table-card">
             <div class="admin-reports-table-head">
               <div class="admin-reports-columns" aria-hidden="true">
-                <span>Выбор</span>
+                <span></span>
                 <span>Сотрудник / ID</span>
                 <span>Группа / роль</span>
                 <span>Статус</span>
@@ -1017,29 +1011,40 @@
         </section>
 
         <section class="admin-detail-user-card">
-          <div class="admin-detail-user-strip">
-            <div class="admin-detail-profile-head">
+          <div class="admin-detail-user-header">
+            <div class="admin-detail-user-identity">
               <div class="admin-detail-photo-card">
                 <div id="admin-report-detail-avatar" class="admin-detail-photo">A</div>
-                <span class="admin-detail-photo-status"></span>
+                <span class="admin-detail-photo-status" aria-hidden="true"></span>
               </div>
-              <div class="admin-detail-profile-copy">
-                <strong id="admin-report-detail-name">Пользователь</strong>
-                <span id="admin-report-detail-role">Роль не указана</span>
-                <span id="admin-report-detail-group">Группа не указана</span>
-                <span id="admin-report-detail-phone">Телефон не указан</span>
-                <span id="admin-report-detail-telegram">Telegram не указан</span>
-                <div class="admin-detail-profile-badges">
+              <div class="admin-detail-user-identity-copy">
+                <div class="admin-detail-user-badges">
                   <span class="admin-detail-badge">4K Report</span>
                   <span class="admin-detail-badge muted" id="admin-report-detail-status-badge">Черновик</span>
                 </div>
+                <strong id="admin-report-detail-name">Пользователь</strong>
+                <span id="admin-report-detail-role" class="admin-detail-user-role">Роль не указана</span>
               </div>
             </div>
-            <div class="report-hero-score admin-detail-user-score">
+            <div class="admin-detail-user-score">
+              <span class="admin-detail-user-score-label">Интегральный показатель</span>
               <strong id="admin-report-detail-score">0%</strong>
-              <span>Интегральный показатель</span>
             </div>
           </div>
+          <dl class="admin-detail-user-meta">
+            <div class="admin-detail-user-meta-item">
+              <dt>Группа</dt>
+              <dd id="admin-report-detail-group">Группа не указана</dd>
+            </div>
+            <div class="admin-detail-user-meta-item">
+              <dt>Телефон</dt>
+              <dd id="admin-report-detail-phone">Телефон не указан</dd>
+            </div>
+            <div class="admin-detail-user-meta-item">
+              <dt>Telegram</dt>
+              <dd id="admin-report-detail-telegram">Telegram не указан</dd>
+            </div>
+          </dl>
         </section>
 
         <section class="admin-detail-expert-comment-card">
@@ -1079,34 +1084,32 @@
           </div>
         </section>
 
-        <section class="admin-detail-top-grid">
-          <article class="report-competencies-card">
-            <div class="report-card-head">
-              <div>
-                <p class="section-label accent-label">Компетенции (4К)</p>
-                <h3>Сводные показатели по компетенциям</h3>
+        <article class="report-competencies-card">
+          <div class="report-card-head">
+            <div>
+              <p class="section-label accent-label">Компетенции (4К)</p>
+              <h3>Сводные показатели по компетенциям</h3>
+            </div>
+          </div>
+          <section class="admin-detail-skill-radar-section" aria-labelledby="admin-report-detail-skills-radar-title">
+            <div class="admin-detail-skill-radar-head">
+              <strong id="admin-report-detail-skills-radar-title">Распределение по 13 навыкам</strong>
+              <p>Оценки отдельных навыков, из которых собирается итоговый профиль 4K.</p>
+            </div>
+            <div class="admin-detail-skills-radar-card">
+              <div class="admin-detail-skills-radar-frame">
+                <canvas id="admin-report-detail-skills-radar-chart" aria-label="Радар навыков 4K" role="img"></canvas>
+                <div id="admin-report-detail-skills-radar-labels" class="admin-detail-radar-competency-labels hidden" aria-hidden="true">
+                  <span data-competency="communication">Коммуникация</span>
+                  <span data-competency="teamwork">Командная работа</span>
+                  <span data-competency="creativity">Креативность</span>
+                  <span data-competency="critical-thinking">Критическое мышление</span>
+                </div>
+                <div id="admin-report-detail-skills-radar-fallback" class="admin-detail-skills-radar-fallback hidden" aria-live="polite"></div>
               </div>
             </div>
-            <section class="admin-detail-skill-radar-section" aria-labelledby="admin-report-detail-skills-radar-title">
-              <div class="admin-detail-skill-radar-head">
-                <strong id="admin-report-detail-skills-radar-title">Распределение по 13 навыкам</strong>
-                <p>Оценки отдельных навыков, из которых собирается итоговый профиль 4K.</p>
-              </div>
-              <div class="admin-detail-skills-radar-card">
-                <div class="admin-detail-skills-radar-frame">
-                  <canvas id="admin-report-detail-skills-radar-chart" aria-label="Радар навыков 4K" role="img"></canvas>
-                  <div id="admin-report-detail-skills-radar-labels" class="admin-detail-radar-competency-labels hidden" aria-hidden="true">
-                    <span data-competency="communication">Коммуникация</span>
-                    <span data-competency="teamwork">Командная работа</span>
-                    <span data-competency="creativity">Креативность</span>
-                    <span data-competency="critical-thinking">Критическое мышление</span>
-                  </div>
-                  <div id="admin-report-detail-skills-radar-fallback" class="admin-detail-skills-radar-fallback hidden" aria-live="polite"></div>
-                </div>
-              </div>
-            </section>
-          </article>
-        </section>
+          </section>
+        </article>
 
         <section class="admin-detail-profile-summary-card">
           <div class="report-card-head">
@@ -1560,6 +1563,15 @@
       <p id="chat-error" class="error" hidden></p>
     </section>
   </main>
+
+  <div id="report-info-modal" class="report-info-modal hidden" aria-hidden="true">
+    <article class="report-info-dialog" role="dialog" aria-modal="true" aria-labelledby="report-info-modal-title">
+      <button id="report-info-modal-close" class="report-info-close" type="button" aria-label="Закрыть"></button>
+      <p id="report-info-modal-eyebrow" class="report-info-eyebrow">Детали</p>
+      <h3 id="report-info-modal-title">Информация</h3>
+      <div id="report-info-modal-body" class="report-info-body"></div>
+    </article>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="/web/app.js?v=20260515-admin-expert-group-picker-modal" defer></script>
