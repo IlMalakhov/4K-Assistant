@@ -64,7 +64,6 @@
     gap: var(--space-3);
     align-items: center;
     padding: var(--space-3);
-    border-radius: var(--radius-md);
 }
 
 .report-card-clickable {
@@ -121,15 +120,11 @@
 }
 
 .empty-card {
-    padding: var(--space-4);
     color: var(--text-muted);
 }
 
 .reports-intro-card {
     padding: var(--space-3);
-    border-radius: var(--radius-lg);
-    background: #ffffff;
-    border: 1px solid var(--panel-border);
 }
 
 .reports-intro-card strong {

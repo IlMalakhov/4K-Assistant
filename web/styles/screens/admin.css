@@ -7,16 +7,6 @@
     padding: var(--space-4) var(--space-7);
 }
 
-.admin-hero-card,
-.admin-analytics-card,
-.admin-insights-card,
-.admin-activity-card {
-    background: #ffffff;
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius-xl);
-    padding: var(--space-5);
-}
-
 .admin-insights-card {
     display: flex;
     flex-direction: column;
@@ -57,10 +47,6 @@
 }
 
 .admin-metric-card {
-    background: #ffffff;
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius-xl);
-    padding: var(--space-4);
     display: grid;
     gap: var(--space-2);
 }
@@ -249,9 +235,6 @@
 }
 
 .admin-insight-card {
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--panel-border);
-    background: var(--control-bg);
     padding: var(--space-3) var(--space-4);
 }
 

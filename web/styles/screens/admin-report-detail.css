@@ -33,9 +33,6 @@
 }
 
 .admin-detail-skills-radar-card {
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--panel-border);
-    padding: var(--space-4);
     min-height: 0;
 }
 
@@ -235,14 +232,6 @@
     );
 }
 
-.admin-detail-insights-card,
-.admin-detail-quotes-card {
-    background: #ffffff;
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius-xl);
-    padding: var(--space-5);
-}
-
 .admin-detail-insights-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -268,9 +257,6 @@
 
 .admin-detail-quote-card {
     min-height: 160px;
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--panel-border);
-    background: var(--control-bg);
     padding: var(--space-3) var(--space-4);
     display: grid;
     align-content: start;
@@ -296,10 +282,6 @@
 .admin-detail-cases-card {
     display: grid;
     gap: var(--space-4);
-    background: #ffffff;
-    border: 1px solid rgba(70, 72, 212, 0.1);
-    border-radius: var(--radius-xl);
-    padding: var(--space-5);
 }
 
 .admin-detail-user-card {
@@ -478,28 +460,8 @@
 }
 
 .admin-detail-profile-summary-card {
-    position: relative;
     display: grid;
     gap: var(--space-4);
-    overflow: hidden;
-    padding: var(--space-5);
-    border: 1px solid rgba(70, 72, 212, 0.1);
-    border-radius: var(--radius-xl);
-    background: #ffffff;
-}
-
-.admin-detail-profile-summary-card::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 auto;
-    height: 4px;
-    background: linear-gradient(
-        90deg,
-        var(--accent) 0%,
-        #16a34a 34%,
-        #ea580c 68%,
-        #7c3aed 100%
-    );
 }
 
 .admin-detail-profile-summary-grid {
@@ -510,18 +472,12 @@
 }
 
 .admin-detail-profile-summary-item {
-    position: relative;
     min-height: 0;
     display: grid;
     align-content: start;
     gap: var(--space-2);
-    overflow: hidden;
     padding: var(--space-3);
-    border: 1px solid rgba(70, 72, 212, 0.1);
-    border-radius: var(--radius-sm);
-    background:
-        linear-gradient(180deg, rgba(248, 249, 255, 0.96), #ffffff 74%),
-        #ffffff;
+    border-radius: var(--radius-md);
 }
 
 .admin-detail-profile-summary-item:nth-child(1),
@@ -587,13 +543,6 @@
 .admin-detail-insights-summary {
     display: grid;
     gap: var(--space-3);
-    padding: var(--space-4);
-    border-radius: var(--radius-xl);
-    background: linear-gradient(
-        180deg,
-        rgba(70, 72, 212, 0.06),
-        rgba(70, 72, 212, 0.13)
-    );
 }
 
 .admin-detail-insights-summary h4 {
@@ -667,9 +616,6 @@
 
 .admin-detail-insight-column {
     padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-xl);
-    border: 1px solid rgba(70, 72, 212, 0.08);
-    background: rgba(248, 249, 255, 0.88);
 }
 
 .admin-detail-insight-column strong {
@@ -723,9 +669,7 @@
 }
 
 .admin-detail-case-item {
-    border: 1px solid rgba(70, 72, 212, 0.12);
-    border-radius: var(--radius-xl);
-    background: rgba(247, 247, 255, 0.82);
+    padding: 0;
     overflow: hidden;
 }
 
@@ -790,9 +734,6 @@
     align-content: start;
     gap: var(--space-3);
     padding: var(--space-3);
-    border-radius: var(--radius-xl);
-    border: 1px solid rgba(70, 72, 212, 0.1);
-    background: #ffffff;
 }
 
 .admin-detail-case-meta,

@@ -133,24 +133,20 @@
     gap: var(--space-3);
 }
 
-.admin-methodology-passport-card,
 .admin-methodology-coverage-row,
 .admin-methodology-risk-item,
 .admin-methodology-detail-field,
 .admin-methodology-detail-block,
 .admin-methodology-personalization-box,
 .admin-methodology-check-item,
-.admin-methodology-signal-card,
 .admin-methodology-history-item {
-    border: 1px solid rgba(204, 208, 232, 0.82);
-    background: rgba(250, 251, 255, 0.96);
+    border: 1px solid var(--line);
+    background: #ffffff;
 }
 
 .admin-methodology-passport-card {
     display: grid;
     gap: var(--space-2);
-    padding: var(--space-3);
-    border-radius: var(--radius-xl);
 }
 
 .admin-methodology-passport-card h4 {
@@ -217,10 +213,6 @@
 .admin-methodology-branch-card {
     display: grid;
     gap: var(--space-2);
-    padding: var(--space-4);
-    border-radius: var(--radius-xl);
-    background: #ffffff;
-    border: 1px solid rgba(70, 72, 212, 0.1);
 }
 
 .admin-methodology-branch-head span,
@@ -413,11 +405,6 @@ admin-methodology-risk-toolbar
 .admin-methodology-detail-card {
     display: grid;
     gap: var(--space-2);
-    padding: var(--space-2);
-    border-radius: var(--radius-lg);
-    background: #ffffff;
-    border: 1px solid rgba(70, 72, 212, 0.1);
-    box-shadow: 0 12px 28px rgba(31, 38, 64, 0.05);
     align-content: start;
     flex: 0 0 auto;
 }

@@ -55,10 +55,7 @@
 .report-competencies-card,
 .report-insight-card,
 .report-details-card {
-    padding: var(--space-4);
-    border-radius: var(--radius-xl);
     background: rgba(255, 255, 255, 0.92);
-    border: 1px solid var(--panel-border);
 }
 
 .report-profile-card {
@@ -1034,8 +1031,6 @@ body.report-info-modal-open {
     align-items: start;
     justify-items: center;
     padding: var(--space-3) var(--space-2);
-    border-radius: var(--radius-lg);
-    background: linear-gradient(180deg, #f1efff 0%, #dfdcfb 100%);
     text-align: center;
 }
 

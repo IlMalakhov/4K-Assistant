@@ -15,9 +15,7 @@
     justify-items: center;
     gap: var(--space-3);
     padding: var(--space-5) var(--space-4);
-    border-radius: var(--radius-xl);
     background: rgba(255, 255, 255, 0.96);
-    border: 1px solid var(--panel-border);
     text-align: center;
 }
 

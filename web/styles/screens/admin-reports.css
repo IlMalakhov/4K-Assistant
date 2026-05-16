@@ -60,14 +60,6 @@
     white-space: nowrap;
 }
 
-.admin-reports-table-card,
-.admin-reports-summary-card {
-    background: #ffffff;
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius-xl);
-    padding: var(--space-5);
-}
-
 .admin-reports-table-card {
     overflow-x: auto;
 }
@@ -150,7 +142,7 @@
 
 .admin-report-row {
     padding: var(--space-3);
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-lg);
     background: rgba(255, 255, 255, 0.96);
     border: 1px solid var(--line);
     cursor: pointer;

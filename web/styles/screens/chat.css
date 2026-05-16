@@ -7,9 +7,6 @@
 
 .status-card {
     padding: var(--space-3);
-    border-radius: var(--radius-lg);
-    background: var(--control-bg);
-    border: 1px solid var(--line);
     color: var(--text-muted);
     line-height: 1.5;
     white-space: pre-wrap;

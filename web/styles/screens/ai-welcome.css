@@ -10,10 +10,7 @@
     grid-template-columns: 1.25fr 0.75fr;
     gap: var(--space-4);
     align-items: center;
-    padding: var(--space-5);
-    border-radius: var(--radius-xl);
     background: rgba(255, 255, 255, 0.84);
-    border: 1px solid var(--panel-border);
 }
 
 .ai-hero-copy h2,
@@ -188,7 +185,6 @@
     overflow: hidden;
     padding: var(--space-6);
     border: 0;
-    border-radius: var(--radius-xl);
     background: #fff;
 }
 

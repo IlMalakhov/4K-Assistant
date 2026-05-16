@@ -2688,7 +2688,7 @@ const renderAdminDashboard = () => {
   adminMetricsGrid.innerHTML = '';
   (adminDashboard.metrics || []).forEach((metric) => {
     const card = document.createElement('article');
-    card.className = 'admin-metric-card';
+    card.className = 'card admin-metric-card';
     card.innerHTML =
       '<span>' +
       metric.label +
@@ -2709,7 +2709,7 @@ const renderAdminDashboard = () => {
   adminInsightsGrid.innerHTML = '';
   (adminDashboard.insights || []).forEach((item) => {
     const card = document.createElement('article');
-    card.className = 'admin-insight-card';
+    card.className = 'card card--inset admin-insight-card';
     card.innerHTML = '<strong>' + item.title + '</strong><p>' + item.description + '</p>';
     adminInsightsGrid.appendChild(card);
   });
@@ -3673,7 +3673,7 @@ const renderAdminPromptLabResult = () => {
   const taskBlocks = caseItems
     .map(
       (item, index) =>
-        '<article class="admin-prompt-lab-task-card">' +
+        '<article class="card admin-prompt-lab-task-card">' +
         '<div class="admin-prompt-lab-task-head">' +
         '<span>Задача ' +
         escapeHtml(item.case_number || index + 1) +
@@ -5342,7 +5342,7 @@ const renderAdminMethodologyDetail = () => {
   adminMethodologyDetailSignals.innerHTML = '';
   (detail.skill_signals && detail.skill_signals.length ? detail.skill_signals : []).forEach((signal) => {
     const card = document.createElement('article');
-    card.className = 'admin-methodology-signal-card';
+    card.className = 'card card--inset admin-methodology-signal-card';
     card.innerHTML =
       '<div class="admin-methodology-signal-head">' +
       '<strong>' +
@@ -5631,7 +5631,7 @@ const renderAdminMethodology = () => {
   adminMethodologyMetrics.innerHTML = '';
   (data.metrics || []).forEach((metric) => {
     const card = document.createElement('article');
-    card.className = 'admin-metric-card';
+    card.className = 'card admin-metric-card';
     card.innerHTML =
       '<span>' +
       metric.label +
@@ -5752,7 +5752,7 @@ const renderAdminMethodology = () => {
   adminMethodologyPassports.innerHTML = '';
   (data.passports || []).forEach((item) => {
     const card = document.createElement('article');
-    card.className = 'admin-methodology-passport-card';
+    card.className = 'card admin-methodology-passport-card';
     const rolesText = Array.isArray(item.roles) && item.roles.length ? item.roles.join(', ') : 'Роли не заданы';
     const passportMeta = [
       item.interactivity_mode ? 'Формат: ' + item.interactivity_mode : '',
@@ -5809,7 +5809,7 @@ const renderAdminMethodology = () => {
     const coveragePercent = Math.max(0, Math.min(100, Number(item.skill_coverage_percent) || 0));
     const competencyPercent = Math.max(0, Math.min(100, Number(item.competency_coverage_percent) || 0));
     const card = document.createElement('article');
-    card.className = 'admin-methodology-branch-card';
+    card.className = 'card admin-methodology-branch-card';
     card.innerHTML =
       '<div class="admin-methodology-branch-head">' +
       '<strong>' +
@@ -7294,7 +7294,7 @@ const renderAdminReportDetail = () => {
   adminReportDetailQuotes.innerHTML = '';
   (detail.quotes && detail.quotes.length ? detail.quotes : []).forEach((text) => {
     const card = document.createElement('article');
-    card.className = 'admin-detail-quote-card';
+    card.className = 'card card--inset admin-detail-quote-card';
     card.innerHTML = '<p>' + escapeHtml(text) + '</p>';
     adminReportDetailQuotes.appendChild(card);
   });
@@ -7364,7 +7364,7 @@ const renderAdminReportDetail = () => {
             '</details>'
           : '';
         const details = document.createElement('details');
-        details.className = 'admin-detail-case-item';
+        details.className = 'card admin-detail-case-item';
         details.innerHTML =
           '<summary class="admin-detail-case-summary">' +
           '<div class="admin-detail-case-summary-main">' +
@@ -7392,7 +7392,7 @@ const renderAdminReportDetail = () => {
           '</summary>' +
           '<div class="admin-detail-case-body">' +
           '<div class="admin-detail-case-columns">' +
-          '<section class="admin-detail-case-panel">' +
+          '<section class="card admin-detail-case-panel">' +
           '<details class="admin-detail-case-section" open>' +
           '<summary class="admin-detail-case-section-summary">Текст кейса</summary>' +
           '<div class="admin-detail-case-section-body">' +
@@ -7408,7 +7408,7 @@ const renderAdminReportDetail = () => {
           '</div>' +
           '</details>' +
           '</section>' +
-          '<section class="admin-detail-case-panel">' +
+          '<section class="card admin-detail-case-panel">' +
           '<details class="admin-detail-case-section" open>' +
           '<summary class="admin-detail-case-section-summary">Диалог по кейсу</summary>' +
           '<div class="admin-detail-case-section-body">' +
@@ -7443,14 +7443,14 @@ const renderAdminReportDetail = () => {
           '</details>' +
           '</section>' +
           '</div>' +
-          '<section class="admin-detail-case-panel">' +
+          '<section class="card admin-detail-case-panel">' +
           '<h4>Результат по кейсу</h4>' +
           '<div class="admin-detail-case-skills">' +
           ((item.skill_results || []).length
             ? item.skill_results
                 .map(
                   (skill) =>
-                    '<article class="admin-detail-case-skill-card">' +
+                    '<article class="card admin-detail-case-skill-card">' +
                     '<div class="admin-detail-case-skill-head">' +
                     '<strong>' +
                     escapeHtml(skill.skill_name || 'Навык') +
@@ -7802,7 +7802,7 @@ const renderDashboard = () => {
   availableAssessments.innerHTML = '';
   dashboard.available_assessments.forEach((item, index) => {
     const card = document.createElement('article');
-    card.className = 'assessment-mini-card';
+    card.className = 'card card--lg assessment-mini-card';
     const actionMarkup =
       index === 0
         ? '<button class="mini-card-action-button" type="button">' +
@@ -7831,7 +7831,7 @@ const renderDashboard = () => {
 
   staticAssessments.forEach((item) => {
     const card = document.createElement('article');
-    card.className = 'assessment-mini-card muted-card ' + item.tone;
+    card.className = 'card is-placeholder assessment-mini-card muted-card ' + item.tone;
     card.innerHTML =
       '<div class="mini-card-icon muted-icon">' +
       (item.title === 'MBTI Profile' ? '◌' : '◍') +
@@ -9199,7 +9199,7 @@ const buildReportCompetencyFallbackMarkup = (summary) =>
   summary
     .map(
       (item) =>
-        '<article class="report-competency-bar-card">' +
+        '<article class="card card--inset report-competency-bar-card">' +
         '<strong>' +
         item.avgPercent +
         '%</strong>' +
@@ -9615,7 +9615,7 @@ const renderProcessingProgress = () => {
   processingAgentsList.innerHTML = '';
   state.processingAgents.forEach((agent) => {
     const item = document.createElement('article');
-    item.className = 'processing-agent-card ' + agent.status;
+    item.className = 'card card--inset processing-agent-card ' + agent.status;
     item.innerHTML =
       '<div class="processing-agent-main">' +
       '<div class="processing-agent-order">' +

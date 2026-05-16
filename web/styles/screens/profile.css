@@ -20,10 +20,7 @@
 .profile-info-card,
 .profile-history-card,
 .profile-results-card {
-    padding: var(--space-4);
-    border-radius: var(--radius-xl);
     background: rgba(255, 255, 255, 0.92);
-    border: 1px solid var(--panel-border);
 }
 
 .profile-info-card {

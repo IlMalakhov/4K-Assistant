@@ -54,10 +54,6 @@
 
 .prechat-step-card {
     min-height: 246.25px;
-    padding: var(--space-5);
-    border-radius: var(--radius-sm);
-    background: #fff;
-    border: 1px solid rgba(224, 227, 229, 0.5);
 }
 
 .prechat-step-card .mini-card-icon {
