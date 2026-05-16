@@ -220,10 +220,6 @@
         white-space: nowrap;
     }
 
-    .profile-hero-card {
-        grid-template-columns: 1fr;
-    }
-
     .assessment-actions {
         justify-items: stretch;
     }

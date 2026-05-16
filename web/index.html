@@ -9,17 +9,17 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
   <!-- CSS is modularized under /web/styles/. Load order: tokens → base → components → screens → utilities. -->
   <link rel="stylesheet" href="/web/styles/tokens.css?v=20260516-merged">
-  <link rel="stylesheet" href="/web/styles/base.css?v=20260516-merged">
+  <link rel="stylesheet" href="/web/styles/base.css?v=20260517-scrollbar">
   <link rel="stylesheet" href="/web/styles/components.css?v=20260516-merged">
   <link rel="stylesheet" href="/web/styles/screens/auth.css?v=20260516-merged">
-  <link rel="stylesheet" href="/web/styles/screens/onboarding.css?v=20260516-merged">
+  <link rel="stylesheet" href="/web/styles/screens/onboarding.css?v=20260517-onboarding-progress-pad">
   <link rel="stylesheet" href="/web/styles/screens/processing.css?v=20260516-merged">
-  <link rel="stylesheet" href="/web/styles/screens/profile.css?v=20260516-merged">
+  <link rel="stylesheet" href="/web/styles/screens/profile.css?v=20260517-redesign-3">
   <link rel="stylesheet" href="/web/styles/screens/report.css?v=20260516-merged">
   <link rel="stylesheet" href="/web/styles/screens/ai-welcome.css?v=20260516-merged">
   <link rel="stylesheet" href="/web/styles/screens/prechat.css?v=20260516-merged">
-  <link rel="stylesheet" href="/web/styles/screens/chat.css?v=20260516-merged">
-  <link rel="stylesheet" href="/web/styles/screens/interview.css?v=20260516-merged">
+  <link rel="stylesheet" href="/web/styles/screens/chat.css?v=20260517-scroll-fix">
+  <link rel="stylesheet" href="/web/styles/screens/interview.css?v=20260517-timer-pill">
   <link rel="stylesheet" href="/web/styles/screens/dashboard.css?v=20260516-merged">
   <link rel="stylesheet" href="/web/styles/screens/reports.css?v=20260516-merged">
   <link rel="stylesheet" href="/web/styles/screens/app-loader.css?v=20260516-merged">
@@ -78,16 +78,12 @@
       <div class="onboarding-shell">
         <div class="onboarding-topbar">
           <div class="brand dashboard-brand">4K Ассистент</div>
-          <div class="onboarding-topbar-actions">
-            <button id="onboarding-back-button" type="button" class="ghost-button compact-ghost">Назад</button>
-            <button id="onboarding-exit-button" type="button" class="topbar-exit-button">
-              <span class="topbar-user-icon" aria-hidden="true">✕</span>
-              <span>Выйти</span>
-            </button>
-          </div>
         </div>
         <div class="onboarding-copy">
-          <div class="step-badge" id="step-badge">Шаг 01</div>
+          <div class="step-badge" id="step-badge">
+            <button id="onboarding-step-back" type="button" class="step-badge-back" aria-label="Назад" hidden></button>
+            <span id="step-badge-label">Шаг 01</span>
+          </div>
           <h2 id="onboarding-title">Познакомьтесь с AI-ассистентом</h2>
           <p class="subtitle" id="onboarding-description"></p>
           <div class="feature-list" id="feature-list"></div>
@@ -142,8 +138,16 @@
           </div>
           <div class="assessment-actions">
             <button id="assessment-action-button" type="button" class="primary-button">Продолжить</button>
-            <div id="assessment-preparing" class="assessment-preparing preparing-ring hidden" style="--progress: 0%;" aria-live="polite">
-              <span id="assessment-preparing-percent" class="preparing-ring-value">0%</span>
+            <div id="assessment-preparing" class="preparing-hero hidden" style="--progress: 0%;" aria-live="polite">
+              <div class="preparing-hero-row">
+                <span class="preparing-hero-pulse" aria-hidden="true"></span>
+                <strong class="preparing-hero-label">Подготовка кейсов</strong>
+                <span id="assessment-preparing-percent" class="preparing-hero-value">0%</span>
+              </div>
+              <div class="preparing-hero-meter">
+                <div class="preparing-hero-meter-fill"></div>
+                <div class="preparing-hero-meter-shimmer" aria-hidden="true"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -188,13 +192,15 @@
             <h2>Добро пожаловать в систему AI-оценки</h2>
             <p id="ai-hero-description">Пройдите первый ассессмент, чтобы получить ваш профиль компетенций и персонализированные рекомендации от искусственного интеллекта.</p>
             <button id="start-first-assessment" type="button" class="primary-button">Начать первый ассессмент</button>
-            <div id="welcome-assessment-preparing" class="hero-preparing hidden" aria-live="polite">
-              <div id="welcome-assessment-ring" class="preparing-ring hero" style="--progress: 0%;">
-                <span id="welcome-assessment-percent" class="preparing-ring-value">0%</span>
+            <div id="welcome-assessment-preparing" class="preparing-hero hidden" aria-live="polite">
+              <div class="preparing-hero-row">
+                <span class="preparing-hero-pulse" aria-hidden="true"></span>
+                <strong id="welcome-assessment-title" class="preparing-hero-label">Подготовка кейсов</strong>
+                <span id="welcome-assessment-percent" class="preparing-hero-value">0%</span>
               </div>
-              <div class="preparing-copy">
-                <strong id="welcome-assessment-title">Подготавливаем кейсы</strong>
-                <span id="welcome-assessment-text">Система собирает персонализированный набор кейсов.</span>
+              <div id="welcome-assessment-ring" class="preparing-hero-meter" style="--progress: 0%;">
+                <div class="preparing-hero-meter-fill"></div>
+                <div class="preparing-hero-meter-shimmer" aria-hidden="true"></div>
               </div>
             </div>
           </div>
@@ -214,9 +220,10 @@
               <div class="mini-card-footer">
                 <span>20 минут</span>
                 <button id="library-start-button" type="button" class="mini-start-button">Начать</button>
-                <div id="library-assessment-preparing" class="mini-card-preparing hidden">
-                  <div id="library-assessment-ring" class="preparing-ring mini" style="--progress: 0%;">
-                    <span id="library-assessment-percent" class="preparing-ring-value">0%</span>
+                <div id="library-assessment-preparing" class="preparing-hero preparing-hero--mini hidden" aria-live="polite">
+                  <div id="library-assessment-ring" class="preparing-hero-row" style="--progress: 0%;">
+                    <span class="preparing-hero-pulse" aria-hidden="true"></span>
+                    <span id="library-assessment-percent" class="preparing-hero-value">0%</span>
                   </div>
                 </div>
               </div>
@@ -1243,13 +1250,15 @@
           </article>
         </div>
         <button id="prechat-start-button" type="button" class="primary-button prechat-start">Начать</button>
-        <div id="prechat-assessment-preparing" class="hero-preparing hidden" aria-live="polite">
-          <div id="prechat-assessment-ring" class="preparing-ring hero" style="--progress: 0%;">
-            <span id="prechat-assessment-percent" class="preparing-ring-value">0%</span>
+        <div id="prechat-assessment-preparing" class="preparing-hero hidden" aria-live="polite">
+          <div class="preparing-hero-row">
+            <span class="preparing-hero-pulse" aria-hidden="true"></span>
+            <strong id="prechat-assessment-title" class="preparing-hero-label">Подготовка кейсов</strong>
+            <span id="prechat-assessment-percent" class="preparing-hero-value">0%</span>
           </div>
-          <div class="preparing-copy">
-            <strong id="prechat-assessment-title">Подготавливаем кейсы</strong>
-            <span id="prechat-assessment-text">Система собирает персонализированный набор кейсов.</span>
+          <div id="prechat-assessment-ring" class="preparing-hero-meter" style="--progress: 0%;">
+            <div class="preparing-hero-meter-fill"></div>
+            <div class="preparing-hero-meter-shimmer" aria-hidden="true"></div>
           </div>
         </div>
         <p id="prechat-error" class="error" hidden></p>
@@ -1302,8 +1311,15 @@
             <p id="interview-case-status">Ожидается запуск интервью</p>
           </div>
 
-          <div id="interview-messages" class="interview-messages"></div>
-          <div id="interview-summary" class="interview-summary hidden"></div>
+          <div class="interview-messages-shell">
+            <div id="interview-scroll-area" class="interview-scroll-area">
+              <div id="interview-summary" class="interview-summary hidden"></div>
+              <div id="interview-messages" class="interview-messages"></div>
+            </div>
+            <button id="interview-messages-scroll" class="interview-messages-scroll" type="button" hidden aria-label="К последним сообщениям">
+              <span aria-hidden="true">↓</span>
+            </button>
+          </div>
           <div id="interview-complete-actions" class="interview-complete-actions hidden">
             <button id="interview-go-processing-button" type="button" class="primary-button">Перейти к анализу</button>
           </div>
@@ -1333,69 +1349,96 @@
       </div>
 
       <div class="profile-shell">
-        <section class="profile-hero-card">
-          <div class="card profile-identity-card">
-            <div class="profile-avatar-card">
-              <div id="profile-avatar" class="profile-avatar">A</div>
-              <img id="profile-avatar-image" class="profile-avatar-image hidden" alt="Фото пользователя">
-              <label class="profile-avatar-upload" for="profile-avatar-input" title="Загрузить фото">✎</label>
-              <input id="profile-avatar-input" type="file" accept="image/*" hidden>
+        <section class="profile-hero">
+          <div class="profile-hero-bg" aria-hidden="true"></div>
+          <div class="profile-hero-inner">
+            <div class="profile-hero-identity">
+              <div class="profile-avatar-card">
+                <div id="profile-avatar" class="profile-avatar">A</div>
+                <img id="profile-avatar-image" class="profile-avatar-image hidden" alt="Фото пользователя">
+                <label class="profile-avatar-upload" for="profile-avatar-input" title="Загрузить фото">
+                  <span aria-hidden="true">✎</span>
+                </label>
+                <input id="profile-avatar-input" type="file" accept="image/*" hidden>
+              </div>
+              <div class="profile-hero-copy">
+                <strong id="profile-name">Пользователь</strong>
+                <span id="profile-role">Должность не указана</span>
+              </div>
             </div>
-            <strong id="profile-name">Пользователь</strong>
-            <span id="profile-role">Должность не указана</span>
-            <div class="profile-stats">
+            <div class="profile-hero-stats">
               <article class="profile-stat">
-                <span>Ассессменты</span>
+                <span class="profile-stat-label">Ассессменты</span>
                 <strong id="profile-total-assessments">0</strong>
               </article>
+              <span class="profile-stat-divider" aria-hidden="true"></span>
               <article class="profile-stat">
-                <span>Средний результат</span>
+                <span class="profile-stat-label">Средний результат</span>
                 <strong id="profile-average-score">0%</strong>
               </article>
             </div>
           </div>
+        </section>
 
-          <div class="card profile-info-card">
-            <div class="profile-card-head">
-              <h3>Основная информация</h3>
-              <p>Управляйте данными профиля и профессиональными настройками.</p>
-            </div>
-            <div class="profile-info-grid">
-              <label class="profile-field">
-                <span>Имя</span>
+        <section class="profile-grid">
+          <article class="card profile-card profile-contacts-card">
+            <header class="profile-section-head">
+              <div>
+                <h3>Контактные данные</h3>
+                <p>Email и Telegram сохраняются автоматически. Имя и телефон управляются учетной записью.</p>
+              </div>
+              <span class="profile-section-badge">Редактируемое</span>
+            </header>
+            <div class="profile-fields">
+              <label class="profile-field is-readonly">
+                <span class="profile-field-label">ФИО</span>
                 <input id="profile-full-name" type="text" readonly>
               </label>
-              <label class="profile-field">
-                <span>Email</span>
-                <div class="profile-editable-field">
+              <label class="profile-field is-readonly">
+                <span class="profile-field-label">Телефон</span>
+                <input id="profile-phone" type="text" readonly>
+              </label>
+              <label class="profile-field is-editable">
+                <span class="profile-field-label">Email</span>
+                <div class="profile-input-wrap">
                   <input id="profile-email" type="email" placeholder="name@example.com">
                   <span class="profile-field-edit-icon" aria-hidden="true">✎</span>
                 </div>
               </label>
-              <label class="profile-field">
-                <span>Телефон</span>
-                <input id="profile-phone" type="text" readonly>
-              </label>
-              <label class="profile-field">
-                <span>Telegram</span>
-                <div class="profile-editable-field">
+              <label class="profile-field is-editable">
+                <span class="profile-field-label">Telegram</span>
+                <div class="profile-input-wrap">
                   <input id="profile-telegram" type="text" placeholder="@username">
                   <span class="profile-field-edit-icon" aria-hidden="true">✎</span>
                 </div>
               </label>
-              <label class="profile-field">
-                <span>Профессия</span>
+            </div>
+            <p id="profile-save-status" class="profile-save-status" hidden></p>
+          </article>
+
+          <article class="card profile-card profile-work-card">
+            <header class="profile-section-head">
+              <div>
+                <h3>Профессиональный контекст</h3>
+                <p>Используется ассистентом при подборе кейсов под вашу роль.</p>
+              </div>
+              <span class="profile-section-badge profile-section-badge--muted">Из интервью</span>
+            </header>
+            <div class="profile-fields">
+              <label class="profile-field is-readonly">
+                <span class="profile-field-label">Должность</span>
                 <input id="profile-job-description" type="text" readonly>
               </label>
-              <label class="profile-field profile-field-wide">
-                <span>Индустрия</span>
+              <label class="profile-field is-readonly">
+                <span class="profile-field-label">Индустрия</span>
                 <input id="profile-company-industry" type="text" readonly>
               </label>
             </div>
-            <p id="profile-save-status" class="profile-save-status" hidden></p>
-          </div>
+            <div class="profile-work-hint">
+              <p>Чтобы обновить рабочий контекст, пройдите интервью заново — данные собираются на этапе подготовки.</p>
+            </div>
+          </article>
         </section>
-
       </div>
     </section>
 
@@ -1595,6 +1638,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
-  <script src="/web/app.js?v=20260515-admin-expert-group-picker-modal" defer></script>
+  <script src="/web/app.js?v=20260517-scroll-fade-2" defer></script>
 </body>
 </html>

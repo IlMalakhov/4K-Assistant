@@ -323,15 +323,14 @@ const chatInput = document.getElementById('chat-input');
 const chatError = document.getElementById('chat-error');
 const statusCard = document.getElementById('status-card');
 const restartButton = document.getElementById('restart-button');
-const stepBadge = document.getElementById('step-badge');
 const onboardingTitle = document.getElementById('onboarding-title');
 const onboardingDescription = document.getElementById('onboarding-description');
 const featureList = document.getElementById('feature-list');
 const onboardingVisual = document.getElementById('onboarding-visual');
 const onboardingNext = document.getElementById('onboarding-next');
 const onboardingSkip = document.getElementById('onboarding-skip');
-const onboardingBackButton = document.getElementById('onboarding-back-button');
-const onboardingExitButton = document.getElementById('onboarding-exit-button');
+const onboardingStepBackButton = document.getElementById('onboarding-step-back');
+const stepBadgeLabel = document.getElementById('step-badge-label');
 const dashboardGreeting = document.getElementById('dashboard-greeting');
 const dashboardUserName = document.getElementById('dashboard-user-name');
 const dashboardUserRole = document.getElementById('dashboard-user-role');
@@ -598,6 +597,8 @@ const interviewCaseTitle = document.getElementById('interview-case-title');
 const interviewCaseStatus = document.getElementById('interview-case-status');
 const interviewTimerBadge = document.getElementById('interview-timer-badge');
 const interviewMessages = document.getElementById('interview-messages');
+const interviewScrollArea = document.getElementById('interview-scroll-area');
+const interviewMessagesScroll = document.getElementById('interview-messages-scroll');
 const interviewSummary = document.getElementById('interview-summary');
 const interviewCompleteActions = document.getElementById('interview-complete-actions');
 const interviewGoProcessingButton = document.getElementById('interview-go-processing-button');
@@ -855,6 +856,31 @@ const addMessage = (role, text) => {
   item.textContent = text;
   messages.appendChild(item);
   messages.scrollTop = messages.scrollHeight;
+};
+
+const showAgentTyping = () => {
+  if (!messages) {
+    return;
+  }
+  hideAgentTyping();
+  const item = document.createElement('div');
+  item.className = 'message bot message-typing';
+  item.id = 'agent-typing-indicator';
+  item.setAttribute('aria-label', 'Агент печатает');
+  item.setAttribute('role', 'status');
+  item.innerHTML =
+    '<span class="message-typing-dot"></span>' +
+    '<span class="message-typing-dot"></span>' +
+    '<span class="message-typing-dot"></span>';
+  messages.appendChild(item);
+  messages.scrollTop = messages.scrollHeight;
+};
+
+const hideAgentTyping = () => {
+  const existing = document.getElementById('agent-typing-indicator');
+  if (existing && existing.parentNode) {
+    existing.parentNode.removeChild(existing);
+  }
 };
 
 const showError = (element, message) => {
@@ -1168,6 +1194,22 @@ const renderAssessmentPreparationState = () => {
     }
   }
   updatePreparingRing(libraryAssessmentRing, libraryAssessmentPercent, preparing ? progressPercent : 0);
+
+  const dashboardMiniStart = document.getElementById('dashboard-mini-start');
+  const dashboardMiniPreparing = document.getElementById('dashboard-mini-preparing');
+  const dashboardMiniRing = document.getElementById('dashboard-mini-ring');
+  const dashboardMiniPercent = document.getElementById('dashboard-mini-percent');
+  if (dashboardMiniPreparing) {
+    dashboardMiniPreparing.classList.toggle('hidden', !preparing);
+  }
+  if (dashboardMiniStart) {
+    dashboardMiniStart.classList.toggle('hidden', preparing);
+    dashboardMiniStart.disabled = preparing;
+    if (failed) {
+      dashboardMiniStart.textContent = 'Попробовать снова';
+    }
+  }
+  updatePreparingRing(dashboardMiniRing, dashboardMiniPercent, preparing ? progressPercent : 0);
 
   if (prechatStartButton) {
     prechatStartButton.classList.toggle('hidden', preparing);
@@ -6051,6 +6093,7 @@ const sendChatMessage = async (text, displayText = null) => {
   state.isChatSubmitting = true;
   chatInput.disabled = true;
   chatForm.querySelector('button').disabled = true;
+  showAgentTyping();
 
   try {
     const operationId = state.isNewUserFlow ? createOperationId() : null;
@@ -6075,6 +6118,7 @@ const sendChatMessage = async (text, displayText = null) => {
     });
     const data = await readApiResponse(response, 'Не удалось обработать сообщение.');
 
+    hideAgentTyping();
     addMessage('bot', data.message);
     state.completed = data.completed;
     state.pendingUser = data.user || state.pendingUser;
@@ -6119,6 +6163,7 @@ const sendChatMessage = async (text, displayText = null) => {
       }
     }
   } catch (error) {
+    hideAgentTyping();
     if (state.isNewUserFlow) {
       hideLoader();
     }
@@ -7805,9 +7850,15 @@ const renderDashboard = () => {
     card.className = 'card card--lg assessment-mini-card';
     const actionMarkup =
       index === 0
-        ? '<button class="mini-card-action-button" type="button">' +
+        ? '<button id="dashboard-mini-start" class="mini-card-action-button" type="button">' +
           (canReusePreparedAssessment() ? 'К кейсам' : 'Начать') +
-          '</button>'
+          '</button>' +
+          '<div id="dashboard-mini-preparing" class="preparing-hero preparing-hero--mini hidden" aria-live="polite">' +
+          '<div id="dashboard-mini-ring" class="preparing-hero-row" style="--progress: 0%;">' +
+          '<span class="preparing-hero-pulse" aria-hidden="true"></span>' +
+          '<span id="dashboard-mini-percent" class="preparing-hero-value">0%</span>' +
+          '</div>' +
+          '</div>'
         : '<span>' + escapeHtml(item.status) + '</span>';
     card.innerHTML =
       '<div class="mini-card-icon">4K</div>' +
@@ -7828,6 +7879,7 @@ const renderDashboard = () => {
     }
     availableAssessments.appendChild(card);
   });
+  renderAssessmentPreparationState();
 
   staticAssessments.forEach((item) => {
     const card = document.createElement('article');
@@ -10011,15 +10063,53 @@ const addInterviewMessage = (role, text) => {
   }
   row.appendChild(bubble);
   interviewMessages.appendChild(row);
-  interviewMessages.scrollTop = interviewMessages.scrollHeight;
+  scrollInterviewToBottom();
 };
+
+const scrollInterviewToBottom = () => {
+  if (interviewScrollArea) {
+    interviewScrollArea.scrollTop = interviewScrollArea.scrollHeight;
+  }
+  updateInterviewMessagesScrollIndicator();
+};
+
+const updateInterviewMessagesScrollIndicator = () => {
+  if (!interviewScrollArea) return;
+  const distanceFromBottom =
+    interviewScrollArea.scrollHeight - interviewScrollArea.scrollTop - interviewScrollArea.clientHeight;
+  const hasOverflow = interviewScrollArea.scrollHeight - interviewScrollArea.clientHeight > 8;
+  const canScrollUp = hasOverflow && interviewScrollArea.scrollTop > 8;
+  const canScrollDown = hasOverflow && distanceFromBottom > 8;
+  interviewScrollArea
+    .closest('.interview-messages-shell')
+    ?.classList.toggle('can-scroll-up', canScrollUp);
+  interviewScrollArea
+    .closest('.interview-messages-shell')
+    ?.classList.toggle('can-scroll-down', canScrollDown);
+  if (interviewMessagesScroll) {
+    interviewMessagesScroll.hidden = !(hasOverflow && distanceFromBottom > 24);
+  }
+};
+
+if (interviewMessagesScroll && interviewScrollArea) {
+  interviewMessagesScroll.addEventListener('click', () => {
+    interviewScrollArea.scrollTo({ top: interviewScrollArea.scrollHeight, behavior: 'smooth' });
+  });
+}
+
+if (interviewScrollArea) {
+  interviewScrollArea.addEventListener('scroll', updateInterviewMessagesScrollIndicator, { passive: true });
+  window.addEventListener('resize', updateInterviewMessagesScrollIndicator);
+  const messagesObserver = new MutationObserver(updateInterviewMessagesScrollIndicator);
+  messagesObserver.observe(interviewScrollArea, { childList: true, subtree: true });
+}
 
 const addInterviewHint = (text) => {
   const item = document.createElement('div');
   item.className = 'interview-hint';
   item.textContent = text;
   interviewMessages.appendChild(item);
-  interviewMessages.scrollTop = interviewMessages.scrollHeight;
+  scrollInterviewToBottom();
 };
 
 const renderSingleTurnCaseCard = (text) => {
@@ -10073,8 +10163,7 @@ const renderCaseProgress = (assessmentCompleted = false) => {
       statusLabel = outcome || 'Завершен';
     } else if (index === state.assessmentCaseNumber) {
       status = 'active';
-      const remainingMs = getRemainingCaseTimeMs();
-      statusLabel = remainingMs === null ? 'Текущий' : 'Осталось ' + formatRemainingTime(remainingMs);
+      statusLabel = 'Текущий';
     }
 
     item.className = 'case-progress-item ' + status;
@@ -10178,27 +10267,16 @@ const updateInterviewTimer = () => {
   const remainingMs = getRemainingCaseTimeMs();
   if (remainingMs === null) {
     interviewTimerBadge.textContent = 'Без лимита';
-    interviewFooterText.textContent = 'Ответы анализируются алгоритмами AI для оценки компетенций';
-    renderCaseProgress(false);
     return false;
   }
 
   if (remainingMs <= 0) {
     interviewTimerBadge.textContent = '00:00';
-    interviewFooterText.textContent = 'Время по текущему кейсу истекло. Фиксируем результат.';
     interviewCaseStatus.textContent = 'Кейс завершается автоматически из-за окончания времени.';
-    renderCaseProgress(false);
     return true;
   }
 
   interviewTimerBadge.textContent = formatRemainingTime(remainingMs);
-  interviewFooterText.textContent =
-    'Осталось времени на кейс: ' +
-    formatRemainingTime(remainingMs) +
-    ' из ' +
-    state.assessmentTimeLimitMinutes +
-    ' мин.';
-  renderCaseProgress(false);
   return false;
 };
 
@@ -10394,7 +10472,10 @@ const startAssessmentInterview = async () => {
 
 const renderOnboarding = () => {
   const step = onboardingSteps[state.onboardingIndex];
-  stepBadge.textContent = step.step;
+  stepBadgeLabel.textContent = step.step;
+  if (onboardingStepBackButton) {
+    onboardingStepBackButton.hidden = state.onboardingIndex === 0;
+  }
   onboardingTitle.textContent = step.title;
   onboardingDescription.textContent = step.description;
   featureList.innerHTML = '';
@@ -10406,6 +10487,7 @@ const renderOnboarding = () => {
   });
   onboardingVisual.innerHTML = step.visual;
   onboardingNext.textContent = step.finalButton || 'Далее';
+  window.scrollTo({ top: 0, left: 0 });
 };
 
 const openOnboarding = () => {
@@ -10538,21 +10620,18 @@ onboardingSkip.addEventListener('click', () => {
   returnToStart();
 });
 
-if (onboardingBackButton) {
-  onboardingBackButton.addEventListener('click', () => {
-    if (state.onboardingIndex > 0) {
-      state.onboardingIndex -= 1;
-      renderOnboarding();
-      return;
-    }
-    returnToStart();
-  });
-}
+const goBackInOnboarding = () => {
+  if (state.onboardingIndex > 0) {
+    state.onboardingIndex -= 1;
+    renderOnboarding();
+    return;
+  }
 
-if (onboardingExitButton) {
-  onboardingExitButton.addEventListener('click', () => {
-    returnToStart();
-  });
+  returnToStart();
+};
+
+if (onboardingStepBackButton) {
+  onboardingStepBackButton.addEventListener('click', goBackInOnboarding);
 }
 
 chatForm.addEventListener('submit', async (event) => {

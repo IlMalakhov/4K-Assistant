@@ -12,6 +12,37 @@ body {
     background: var(--bg-soft);
 }
 
+* {
+    scrollbar-color: rgba(70, 72, 212, 0.28) transparent;
+    scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 3px solid transparent;
+    border-radius: var(--radius-pill);
+    background: rgba(70, 72, 212, 0.2);
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(70, 72, 212, 0.34);
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 .shell {
     min-height: 100vh;
     display: flex;
@@ -144,4 +175,3 @@ h4 {
     font-size: var(--fs-body);
     font-weight: var(--fw-semibold);
 }
-
